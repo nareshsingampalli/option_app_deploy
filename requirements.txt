@@ -1,0 +1,7 @@
+flask
+pandas
+requests
+python-dotenv
+upstox-python-sdk
+scipy
+numpy
