@@ -191,6 +191,20 @@
             color: #666;
             z-index: 1000;
         }
+
+        @keyframes pulse {
+            0% {
+                opacity: 0.6;
+            }
+
+            50% {
+                opacity: 1;
+            }
+
+            100% {
+                opacity: 0.6;
+            }
+        }
     </style>
 </head>
 
@@ -229,6 +243,11 @@
                         onclick="refreshToken()">
                         Refresh Token & Retry
                     </button>
+                </div>
+
+                <div id="pending-indicator"
+                    style="display:none; text-align:center; padding:5px; background:#fff3e0; border:1px solid #ffe0b2; border-radius:4px; margin-bottom:10px; font-size:12px; color:#e65100;">
+                    <span style="animation: pulse 1.5s infinite;">⏳ Pending update...</span>
                 </div>
 
                 <div class="control-group">
@@ -339,7 +358,9 @@
 
             slider.value = 0;
             document.getElementById('time-display').textContent = sliderToTime(0);
-            fetchData();
+
+            // Use debounced fetch for mode switches too
+            debouncedFetch(100);
         }
 
         async function refreshToken() {
@@ -393,13 +414,21 @@
         // Debounce: wait for user to stop interacting before fetching (non-live mode)
         let _fetchDebounceTimer = null;
         function debouncedFetch(delay = 800) {
+            const pending = document.getElementById('pending-indicator');
+            if (pending) pending.style.display = 'block';
+
             if (isLiveMode) {
-                // Live mode: just re-render charts with existing data (no new fetch needed)
-                renderCharts();
+                // Live mode: re-render charts immediately if we have data
+                if (pending) pending.style.display = 'none';
+                if (rawData.length > 0) renderCharts();
+                else fetchData();
                 return;
             }
             clearTimeout(_fetchDebounceTimer);
-            _fetchDebounceTimer = setTimeout(() => fetchData(), delay);
+            _fetchDebounceTimer = setTimeout(() => {
+                if (pending) pending.style.display = 'none';
+                fetchData();
+            }, delay);
         }
 
         // Slider: update display on every tick (input), fetch only on release (change)
@@ -445,7 +474,7 @@
                 }
                 // 5 minutes = 300000 ms
                 startAutoRefresh(300000);
-                fetchData();
+                debouncedFetch(100);
             } else {
                 datePicker.disabled = false;
                 stopAutoRefresh();
@@ -507,6 +536,12 @@
             // Get time from slider
             const sliderVal = document.getElementById('time-slider').value;
             const time = sliderToTime(sliderVal);
+
+            const updateBtn = document.querySelector('button[onclick="renderCharts()"]');
+            if (updateBtn) {
+                updateBtn.disabled = true;
+                updateBtn.textContent = "Fetching Data...";
+            }
 
             if (!silent) {
                 document.getElementById('loading').style.display = 'flex';
