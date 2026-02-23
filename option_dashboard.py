@@ -197,4 +197,4 @@ if __name__ == '__main__':
     import sys # Import here to use in the route if needed
     port = int(os.getenv("OPTION_DASHBOARD_PORT", 8002))
     print(f"Starting Option Chain Dashboard on port {port}...")
-    app.run(host='0.0.0.0', port=port, debug=False)
+    app.run(host='0.0.0.0', port=8010, debug=False)

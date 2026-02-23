@@ -1,9 +1,9 @@
 {
-    "spot_price": 25819.35,
-    "target_date": "2026-02-18",
+    "spot_price": 25571.25,
+    "target_date": "2026-02-20",
     "target_time": "09:15",
     "expiry_date": "2026-02-24",
-    "fetched_at": "2026-02-22T21:34:36.076497",
+    "fetched_at": "2026-02-22T22:18:12.854517",
     "has_data": true,
     "expired_contracts": false,
     "error": null

@@ -1,0 +1,10 @@
+{
+    "spot_price": null,
+    "target_date": "2026-02-19",
+    "target_time": "09:15",
+    "expiry_date": null,
+    "fetched_at": "2026-02-23T07:21:59.751979",
+    "has_data": false,
+    "expired_contracts": false,
+    "error": "Failed to fetch spot price"
+}
