@@ -11,7 +11,7 @@ def timeout_handler(signum, frame):
 
 class BaseCandleFetcher:
     """Base class for candle fetching shared across intraday and historical."""
-    def __init__(self, access_token='None'):
+    def __init__(self, access_token=None):
         self.access_token = access_token or os.getenv("UPSTOX_ACCESS_TOKEN")
         if not self.access_token:
             raise ValueError("UPSTOX_ACCESS_TOKEN not found in environment or arguments.")
