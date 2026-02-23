@@ -1,6 +1,6 @@
-
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -16,12 +16,14 @@
             display: flex;
             flex-direction: column;
         }
+
         .app-container {
             display: flex;
             flex: 1;
             height: 100%;
             overflow: hidden;
         }
+
         /* Sidebar Styles */
         .sidebar {
             width: 300px;
@@ -32,8 +34,9 @@
             display: flex;
             flex-direction: column;
             gap: 20px;
-            box-shadow: 2px 0 5px rgba(0,0,0,0.05);
+            box-shadow: 2px 0 5px rgba(0, 0, 0, 0.05);
         }
+
         .sidebar h2 {
             margin: 0 0 10px 0;
             font-size: 18px;
@@ -44,6 +47,7 @@
             justify-content: space-between;
             align-items: center;
         }
+
         /* Toggle Switch */
         .switch {
             position: relative;
@@ -51,20 +55,26 @@
             width: 34px;
             height: 20px;
         }
-        .switch input { 
+
+        .switch input {
             opacity: 0;
             width: 0;
             height: 0;
         }
+
         .slider-toggle {
             position: absolute;
             cursor: pointer;
-            top: 0; left: 0; right: 0; bottom: 0;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
             background-color: #ccc;
             -webkit-transition: .4s;
             transition: .4s;
             border-radius: 34px;
         }
+
         .slider-toggle:before {
             position: absolute;
             content: "";
@@ -77,27 +87,33 @@
             transition: .4s;
             border-radius: 50%;
         }
-        input:checked + .slider-toggle {
+
+        input:checked+.slider-toggle {
             background-color: #2196F3;
         }
-        input:focus + .slider-toggle {
+
+        input:focus+.slider-toggle {
             box-shadow: 0 0 1px #2196F3;
         }
-        input:checked + .slider-toggle:before {
+
+        input:checked+.slider-toggle:before {
             -webkit-transform: translateX(14px);
             -ms-transform: translateX(14px);
             transform: translateX(14px);
         }
+
         .live-label {
             font-size: 12px;
             color: #666;
             margin-right: 5px;
         }
+
         .control-group {
             display: flex;
             flex-direction: column;
             gap: 8px;
         }
+
         .control-group label {
             display: flex;
             align-items: center;
@@ -105,6 +121,7 @@
             font-size: 14px;
             cursor: pointer;
         }
+
         .scrollable-list {
             max-height: 200px;
             overflow-y: auto;
@@ -112,11 +129,13 @@
             padding: 5px;
             border-radius: 4px;
         }
+
         .btn-group {
             display: flex;
             gap: 5px;
             margin-bottom: 5px;
         }
+
         .btn {
             padding: 4px 8px;
             font-size: 12px;
@@ -125,10 +144,11 @@
             border: 1px solid #ddd;
             border-radius: 3px;
         }
+
         .btn:hover {
             background: #e0e0e0;
         }
-        
+
         /* Main Content Styles */
         .main-content {
             flex: 1;
@@ -138,13 +158,15 @@
             flex-direction: column;
             gap: 20px;
         }
+
         .chart-container {
             background: white;
             padding: 15px;
             border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
             min-height: 400px;
         }
+
         .chart-header {
             font-size: 16px;
             font-weight: bold;
@@ -153,12 +175,15 @@
             border-left: 4px solid #007bff;
             padding-left: 10px;
         }
-        
+
         /* Loading Overlay */
         #loading {
             position: fixed;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(255,255,255,0.8);
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255, 255, 255, 0.8);
             display: flex;
             justify-content: center;
             align-items: center;
@@ -168,9 +193,10 @@
         }
     </style>
 </head>
+
 <body>
     <div id="loading">Loading Option Data...</div>
-    
+
     <div class="app-container">
         <!-- Sidebar Controls -->
         <div class="sidebar">
@@ -185,20 +211,34 @@
                         </label>
                     </div>
                 </h2>
-                
-                <div id="auth-error-container" style="display:none; padding:10px; background:#ffebee; border:1px solid #ffcdd2; border-radius:4px; margin-bottom:10px;">
+
+                <div class="control-group">
+                    <label>Select Mode:</label>
+                    <div class="btn-group" id="mode-toggle-group" style="margin-bottom: 10px;">
+                        <button class="btn mode-btn active" onclick="setMode('NSE')" id="btn-nse"
+                            style="flex:1; background:#007bff; color:white;">NSE (Nifty)</button>
+                        <button class="btn mode-btn" onclick="setMode('MCX')" id="btn-mcx" style="flex:1;">MCX
+                            (Crude)</button>
+                    </div>
+                </div>
+
+                <div id="auth-error-container"
+                    style="display:none; padding:10px; background:#ffebee; border:1px solid #ffcdd2; border-radius:4px; margin-bottom:10px;">
                     <div style="color:#d32f2f; font-size:12px; margin-bottom:5px;">Authentication Failed</div>
-                    <button class="btn" style="width:100%; background:#d32f2f; color:white; border:none;" onclick="refreshToken()">
+                    <button class="btn" style="width:100%; background:#d32f2f; color:white; border:none;"
+                        onclick="refreshToken()">
                         Refresh Token & Retry
                     </button>
                 </div>
 
                 <div class="control-group">
                     <label for="date-picker">Select Date:</label>
-                    <input type="date" id="date-picker" class="form-control" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                    <input type="date" id="date-picker" class="form-control"
+                        style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
                 </div>
                 <div class="control-group">
-                    <label for="time-slider">Spot Reference Time: <span id="time-display" style="font-weight:bold; color:#007bff; margin-left:5px;">09:15</span></label>
+                    <label for="time-slider">Spot Reference Time: <span id="time-display"
+                            style="font-weight:bold; color:#007bff; margin-left:5px;">09:15</span></label>
                     <input type="range" id="time-slider" min="0" max="25" value="0" step="1" style="width: 100%;">
                     <div style="display: flex; justify-content: space-between; font-size: 10px; color: #666;">
                         <span>09:15</span>
@@ -208,11 +248,12 @@
                     <small style="color: #666; font-size: 11px;">Slide to change strike selection time</small>
                 </div>
                 <div class="control-group" id="auto-refresh-group" style="display:none; margin-top:5px;">
-                     <label style="font-size: 12px; color: #666;">
+                    <label style="font-size: 12px; color: #666;">
                         <input type="checkbox" id="auto-refresh-cb"> Auto-Refresh (Live)
-                     </label>
+                    </label>
                 </div>
-                <div id="spot-price-display" style="margin-top: 10px; font-weight: bold; color: #007bff; font-size: 16px;"></div>
+                <div id="spot-price-display"
+                    style="margin-top: 10px; font-weight: bold; color: #007bff; font-size: 16px;"></div>
                 <div id="expiry-date-display" style="font-size: 14px; color: #555; margin-top: 5px;"></div>
                 <div id="last-updated" style="font-size: 10px; color: #999; margin-top: 2px;"></div>
             </div>
@@ -239,12 +280,15 @@
                     <label><input type="checkbox" class="metric-cb" value="roc_volume"> ROC Volume (%)</label>
                     <label><input type="checkbox" class="metric-cb" value="roc_iv"> ROC IV (%)</label>
                     <label><input type="checkbox" class="metric-cb" value="coi_vol_ratio"> COI/Vol Ratio</label>
-                    <label><input type="checkbox" class="metric-cb" value="spot_price"> Spot Price</label>
+                    <label><input type="checkbox" class="metric-cb" value="spot_price" checked> Spot Price</label>
                 </div>
             </div>
 
-            <button class="btn" style="width: 100%; padding: 10px; background: #007bff; color: white; border: none;" onclick="renderCharts()">Update Charts</button>
-            <button class="btn" style="width: 100%; padding: 10px; margin-top: 10px; background: #28a745; color: white; border: none;" onclick="refreshToken()">Refresh Env & Token</button>
+            <button class="btn" style="width: 100%; padding: 10px; background: #007bff; color: white; border: none;"
+                onclick="renderCharts()">Update Charts</button>
+            <button class="btn"
+                style="width: 100%; padding: 10px; margin-top: 10px; background: #28a745; color: white; border: none;"
+                onclick="refreshToken()">Refresh Env & Token</button>
         </div>
 
         <!-- Main Chart Area -->
@@ -256,6 +300,47 @@
     <script>
         let rawData = [];
         let uniqueSymbols = [];
+        let currentMode = 'NSE'; // NSE or MCX
+
+        function setMode(mode) {
+            currentMode = mode;
+
+            // Update UI buttons
+            const nseBtn = document.getElementById('btn-nse');
+            const mcxBtn = document.getElementById('btn-mcx');
+            const slider = document.getElementById('time-slider');
+
+            // Find labels
+            const labels = slider.nextElementSibling.querySelectorAll('span');
+
+            if (mode === 'NSE') {
+                if (nseBtn) { nseBtn.style.background = '#007bff'; nseBtn.style.color = 'white'; }
+                if (mcxBtn) { mcxBtn.style.background = '#f0f0f0'; mcxBtn.style.color = '#333'; }
+
+                slider.max = 25; // 09:15 to 15:30 (15 min steps)
+                if (labels.length >= 3) {
+                    labels[0].textContent = '09:15';
+                    labels[1].textContent = '12:15';
+                    labels[2].textContent = '15:30';
+                }
+                metricLabels['spot_price'] = 'Spot Price (Nifty 50)';
+            } else {
+                if (mcxBtn) { mcxBtn.style.background = '#007bff'; mcxBtn.style.color = 'white'; }
+                if (nseBtn) { nseBtn.style.background = '#f0f0f0'; nseBtn.style.color = '#333'; }
+
+                slider.max = 29; // 09:00 to 23:30 (30 min steps)
+                if (labels.length >= 3) {
+                    labels[0].textContent = '09:00';
+                    labels[1].textContent = '16:00';
+                    labels[2].textContent = '23:30';
+                }
+                metricLabels['spot_price'] = 'Spot Price (Crude Oil)';
+            }
+
+            slider.value = 0;
+            document.getElementById('time-display').textContent = sliderToTime(0);
+            fetchData();
+        }
 
         async function refreshToken() {
             try {
@@ -286,42 +371,58 @@
         const datePicker = document.getElementById('date-picker');
         const timeSlider = document.getElementById('time-slider');
         const timeDisplay = document.getElementById('time-display');
-        
+
         // Slider Logic
         function sliderToTime(val) {
-            const startMinutes = 9 * 60 + 15; // 09:15 = 555
-            const totalMinutes = startMinutes + (val * 15);
-            const hours = Math.floor(totalMinutes / 60);
-            const minutes = totalMinutes % 60;
-            return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+            if (currentMode === 'NSE') {
+                const startMinutes = 9 * 60 + 15; // 09:15 = 555
+                const totalMinutes = startMinutes + (val * 15);
+                const hours = Math.floor(totalMinutes / 60);
+                const minutes = totalMinutes % 60;
+                return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+            } else {
+                // MCX: 30 min steps starting 09:00
+                const startMinutes = 9 * 60; // 09:00
+                const totalMinutes = startMinutes + (val * 30);
+                const hours = Math.floor(totalMinutes / 60);
+                const minutes = totalMinutes % 60;
+                return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+            }
         }
 
+        // Debounce: wait for user to stop interacting before fetching (non-live mode)
+        let _fetchDebounceTimer = null;
+        function debouncedFetch(delay = 800) {
+            if (isLiveMode) {
+                // Live mode: just re-render charts with existing data (no new fetch needed)
+                renderCharts();
+                return;
+            }
+            clearTimeout(_fetchDebounceTimer);
+            _fetchDebounceTimer = setTimeout(() => fetchData(), delay);
+        }
+
+        // Slider: update display on every tick (input), fetch only on release (change)
         timeSlider.addEventListener('input', () => {
             timeDisplay.textContent = sliderToTime(timeSlider.value);
         });
 
         timeSlider.addEventListener('change', () => {
-            fetchData();
+            if (!isLiveMode) {
+                debouncedFetch(300); // short delay after release
+            }
         });
-        
-        // Default to today if possible, or 2026-02-20
-        const todayStr = new Date().toISOString().split('T')[0];
-        // datePicker.value = todayStr; // Try setting to today
-        
-        // Prevent selecting today in date picker
-        const yesterday = new Date();
-        yesterday.setDate(yesterday.getDate() - 1);
-        const yesterdayStr = yesterday.toISOString().split('T')[0];
-        datePicker.max = yesterdayStr;
-        datePicker.value = yesterdayStr;
 
-        // If today is not in data, maybe stick to 2026-02-20? 
-        // Let's stick to the user's workflow. If they select a date, we use it.
-        // But for initial load, let's try today.
-        
+        // Default to today so the time slider works for today's intraday data
+        const todayStr = new Date().toISOString().split('T')[0];
+        datePicker.max = todayStr;
+        datePicker.value = todayStr;
+
         datePicker.addEventListener('change', () => {
-            fetchData();
             checkAutoRefresh();
+            if (!isLiveMode) {
+                debouncedFetch(500); // wait 500ms after date change (user may also adjust slider)
+            }
         });
 
         const autoRefreshCb = document.getElementById('auto-refresh-cb');
@@ -332,12 +433,12 @@
             const toggle = document.getElementById('live-toggle');
             isLiveMode = toggle.checked;
             const datePicker = document.getElementById('date-picker');
-            
+
             if (isLiveMode) {
                 datePicker.disabled = true;
                 const today = new Date().toISOString().split('T')[0];
                 datePicker.value = today;
-                
+
                 // Force auto-refresh
                 if (!autoRefreshCb.checked) {
                     autoRefreshCb.checked = true;
@@ -364,7 +465,7 @@
             const date = datePicker.value;
             const today = new Date().toISOString().split('T')[0];
             const refreshGroup = document.getElementById('auto-refresh-group');
-            
+
             if (date === today) {
                 refreshGroup.style.display = 'flex';
                 // Auto-enable for today
@@ -402,20 +503,20 @@
         function fetchData(silent = false) {
             const date = datePicker.value;
             if (!date) return;
-            
+
             // Get time from slider
             const sliderVal = document.getElementById('time-slider').value;
             const time = sliderToTime(sliderVal);
 
             if (!silent) {
                 document.getElementById('loading').style.display = 'flex';
-                let loadingText = `Loading data for ${date}`;
+                let loadingText = `Loading ${currentMode} data for ${date}`;
                 if (time) loadingText += ` at ${time}`;
                 loadingText += `... (May take time if fetching new data)`;
                 document.getElementById('loading').textContent = loadingText;
             }
 
-            let url = `/api/option-data?date=${date}`;
+            let url = `/api/option-data?date=${date}&symbol=${currentMode}`;
             if (time) url += `&time=${time}`;
             if (isLiveMode) url += `&live=true`;
 
@@ -433,24 +534,24 @@
                                 document.getElementById('auth-error-container').style.display = 'block';
                             }
                         }
-                        
+
                         // If meta is present in error, display spot price at least
                         if (data.meta) {
-                             if (data.meta.spot_price) {
+                            if (data.meta.spot_price) {
                                 document.getElementById('spot-price-display').textContent = `Spot Price: ${data.meta.spot_price}`;
-                             }
-                             if (data.meta.expired_contracts) {
-                                 document.getElementById('expiry-date-display').textContent = 'Expired Contracts Unavailable';
-                                 document.getElementById('expiry-date-display').style.color = 'red';
-                             } else {
-                                 document.getElementById('expiry-date-display').textContent = '';
-                             }
+                            }
+                            if (data.meta.expired_contracts) {
+                                document.getElementById('expiry-date-display').textContent = 'Expired Contracts Unavailable';
+                                document.getElementById('expiry-date-display').style.color = 'red';
+                            } else {
+                                document.getElementById('expiry-date-display').textContent = '';
+                            }
                         }
                         return;
                     } else {
-                         document.getElementById('expiry-date-display').style.color = '#555';
+                        document.getElementById('expiry-date-display').style.color = '#555';
                     }
-                    
+
                     // Handle new structure { data: [...], meta: {...} }
                     let records = [];
                     if (Array.isArray(data)) {
@@ -458,22 +559,22 @@
                     } else if (data.data) {
                         records = data.data;
                         if (data.meta) {
-                             if (data.meta.spot_price) {
+                            if (data.meta.spot_price) {
                                 document.getElementById('spot-price-display').textContent = `Spot Price: ${data.meta.spot_price}`;
-                             }
-                             if (data.meta.expiry_date) {
+                            }
+                            if (data.meta.expiry_date) {
                                 document.getElementById('expiry-date-display').textContent = `Expiry: ${data.meta.expiry_date}`;
-                             } else {
+                            } else {
                                 document.getElementById('expiry-date-display').textContent = '';
-                             }
-                             if (data.meta.fetched_at) {
-                                 const fetchedTime = new Date(data.meta.fetched_at).toLocaleTimeString();
-                                 document.getElementById('last-updated').textContent = `Last Updated: ${fetchedTime}`;
-                             }
+                            }
+                            if (data.meta.fetched_at) {
+                                const fetchedTime = new Date(data.meta.fetched_at).toLocaleTimeString();
+                                document.getElementById('last-updated').textContent = `Last Updated: ${fetchedTime}`;
+                            }
                         } else {
-                             document.getElementById('spot-price-display').textContent = '';
-                             document.getElementById('expiry-date-display').textContent = '';
-                             document.getElementById('last-updated').textContent = '';
+                            document.getElementById('spot-price-display').textContent = '';
+                            document.getElementById('expiry-date-display').textContent = '';
+                            document.getElementById('last-updated').textContent = '';
                         }
                     }
 
@@ -481,11 +582,12 @@
                     // Only re-init controls if not silent (or if structure changed significantly?)
                     // For live updates, we probably want to keep current selections.
                     // But if instruments change (e.g. new strikes added?), we might need to update list.
-                    // For now, let's NOT re-init controls on silent refresh to avoid resetting checkboxes.
                     if (!silent) {
-                        initializeControls();
+                        initializeControls(false); // full reset
+                    } else {
+                        updateControlsMerge(); // smart merge: add new, remove gone, keep selections
                     }
-                    
+
                     document.getElementById('loading').style.display = 'none';
                     renderCharts();
                 })
@@ -497,7 +599,6 @@
         }
 
         function initializeControls() {
-            // Extract unique symbols
             const symbolSet = new Set(rawData.map(row => row.symbol));
             uniqueSymbols = Array.from(symbolSet).sort();
 
@@ -505,16 +606,66 @@
             listContainer.innerHTML = '';
 
             uniqueSymbols.forEach(sym => {
-                const div = document.createElement('div');
-                div.className = 'control-group';
-                div.innerHTML = `
-                    <label>
-                        <input type="checkbox" class="instrument-cb" value="${sym}" checked>
-                        ${sym}
-                    </label>
-                `;
-                listContainer.appendChild(div);
+                listContainer.appendChild(makeInstrumentRow(sym, true));
             });
+        }
+
+        function makeInstrumentRow(sym, checked) {
+            const div = document.createElement('div');
+            div.className = 'control-group';
+            div.dataset.symbol = sym;
+            div.innerHTML = `<label><input type="checkbox" class="instrument-cb" value="${sym}" ${checked ? 'checked' : ''}> ${sym}</label>`;
+            return div;
+        }
+
+        function updateControlsMerge() {
+            const newSymbols = new Set(rawData.map(row => row.symbol));
+            const listContainer = document.getElementById('instrument-list');
+
+            // Save current checkbox states
+            const states = {};
+            document.querySelectorAll('.instrument-cb').forEach(cb => {
+                states[cb.value] = cb.checked;
+            });
+
+            // Remove rows for symbols no longer in data
+            const existing = listContainer.querySelectorAll('[data-symbol]');
+            existing.forEach(row => {
+                if (!newSymbols.has(row.dataset.symbol)) {
+                    row.remove();
+                    console.log(`Removed strike: ${row.dataset.symbol}`);
+                }
+            });
+
+            // Add rows for new symbols not yet in the list
+            const existingSymbols = new Set(
+                Array.from(listContainer.querySelectorAll('[data-symbol]')).map(r => r.dataset.symbol)
+            );
+            const sortedNew = Array.from(newSymbols).sort();
+            sortedNew.forEach(sym => {
+                if (!existingSymbols.has(sym)) {
+                    // Insert in sorted order
+                    const newRow = makeInstrumentRow(sym, true); // new strikes default checked
+                    let inserted = false;
+                    const rows = listContainer.querySelectorAll('[data-symbol]');
+                    for (const row of rows) {
+                        if (sym < row.dataset.symbol) {
+                            listContainer.insertBefore(newRow, row);
+                            inserted = true;
+                            break;
+                        }
+                    }
+                    if (!inserted) listContainer.appendChild(newRow);
+                    console.log(`Added new strike: ${sym}`);
+                }
+            });
+
+            // Restore previous checkbox states for unchanged symbols
+            document.querySelectorAll('.instrument-cb').forEach(cb => {
+                if (cb.value in states) cb.checked = states[cb.value];
+            });
+
+            uniqueSymbols = sortedNew;
         }
 
         function selectInstruments(type) {
@@ -534,7 +685,7 @@
 
             // Get selected instruments
             const selectedInstruments = Array.from(document.querySelectorAll('.instrument-cb:checked')).map(cb => cb.value);
-            
+
             // Get selected metrics
             const selectedMetrics = Array.from(document.querySelectorAll('.metric-cb:checked')).map(cb => cb.value);
 
@@ -580,7 +731,7 @@
                             x: groupedData[firstSym].x,
                             y: groupedData[firstSym].rowData.map(r => r[metric]),
                             mode: 'lines',
-                            name: 'Nifty 50 Index',
+                            name: currentMode === 'NSE' ? 'Nifty 50 Index' : 'Crude Oil Index',
                             line: {
                                 width: 3,
                                 color: '#007bff'
@@ -593,7 +744,7 @@
 
                         const isCE = symbol.includes('CE');
                         const isPE = symbol.includes('PE');
-                        
+
                         // Dynamic Color Generation
                         // CE = Green hues, PE = Red hues
                         let color;
@@ -655,7 +806,7 @@
             fetch('/api/refresh-token', { method: 'POST' })
                 .then(r => r.json())
                 .then(data => {
-                    if(data.error) {
+                    if (data.error) {
                         alert('Refresh failed: ' + data.error);
                         btn.textContent = originalText;
                         btn.disabled = false;
@@ -673,4 +824,5 @@
         }
     </script>
 </body>
+
 </html>

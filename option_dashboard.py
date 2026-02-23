@@ -1,19 +1,96 @@
 
 import os
 import json
+import sys
+import threading
 import pandas as pd
 import subprocess
 import time
 from flask import Flask, render_template, jsonify, request
-from datetime import datetime, timedelta
+from datetime import datetime
 from dotenv import load_dotenv
 
 # Load environment
 load_dotenv()
-# Also try loading from refactor_app .env (common location on VM)
 load_dotenv("/home/ubuntu/refactor_app/.env")
 
 app = Flask(__name__)
+
+# Per-symbol fetch locks — prevents concurrent fetches for the same symbol
+_fetch_locks = {
+    'NSE': threading.Lock(),
+    'MCX': threading.Lock(),
+}
+
+# ------------------------------------------------------------------
+# Backend Scheduler
+# Runs fetch scripts every FETCH_INTERVAL_SECONDS during market hours.
+# Frontend is stateless — it just reads precomputed files.
+# ------------------------------------------------------------------
+FETCH_INTERVAL_SECONDS = 330  # 5 minutes 30 seconds
+
+MARKET_HOURS = {
+    #  symbol  start      end       script                  prefix
+    'NSE': ('09:15:20', '15:40:00', 'option_chain.py',     'option'),
+    'MCX': ('09:15:20', '23:59:00', 'option_chain_mcx.py', 'mcx'),
+}
+
+def _secs(t):
+    """Convert time object to total seconds since midnight."""
+    return t.hour * 3600 + t.minute * 60 + t.second
+
+def _run_fetch(symbol, script):
+    """Run the fetch script for a symbol, protected by its lock."""
+    today = datetime.now().strftime('%Y-%m-%d')
+    lock = _fetch_locks[symbol]
+    if not lock.acquire(blocking=False):
+        print(f"[Scheduler-{symbol}] Already running, skipping this cycle.")
+        return
+    try:
+        print(f"[Scheduler-{symbol}] Fetching live data for {today}...")
+        subprocess.run([sys.executable, "-u", script, today, "--live"], timeout=280)
+        print(f"[Scheduler-{symbol}] Fetch complete.")
+    except Exception as e:
+        print(f"[Scheduler-{symbol}] Fetch error: {e}")
+    finally:
+        lock.release()
+
+def _symbol_scheduler(symbol, start_s, end_s, script):
+    """
+    Independent scheduler for one symbol.
+    - Waits until start_s on startup (or next day if already past end_s).
+    - Fetches every FETCH_INTERVAL_SECONDS (5m 30s) within market hours.
+    - Sleeps until next day's start_s once market closes.
+    """
+    from datetime import timedelta
+    start_t = datetime.strptime(start_s, '%H:%M:%S').time()
+    end_t   = datetime.strptime(end_s,   '%H:%M:%S').time()
+    print(f"[Scheduler-{symbol}] Started. Market hours: {start_s} - {end_s} IST | Interval: {FETCH_INTERVAL_SECONDS}s")
+
+    while True:
+        now = datetime.now()
+        cur_secs   = _secs(now.time())
+        start_secs = _secs(start_t)
+        end_secs   = _secs(end_t)
+
+        if cur_secs < start_secs:
+            # Before market open — wait until start time today
+            wait = start_secs - cur_secs
+            print(f"[Scheduler-{symbol}] Pre-market. Sleeping {wait}s until {start_s}...")
+            time.sleep(wait)
+
+        elif cur_secs > end_secs:
+            # After market close — sleep until start_s tomorrow
+            tomorrow_start = datetime.combine(now.date() + timedelta(days=1), start_t)
+            wait = (tomorrow_start - now).total_seconds()
+            print(f"[Scheduler-{symbol}] Market closed. Sleeping {wait:.0f}s until tomorrow {start_s}...")
+            time.sleep(max(1, wait))
+
+        else:
+            # In market hours — fetch then sleep for interval
+            _run_fetch(symbol, script)
+            time.sleep(FETCH_INTERVAL_SECONDS)
+
 
 @app.route('/')
 def option_comparison():
@@ -53,11 +130,15 @@ def refresh_token():
 @app.route('/api/option-data')
 def get_option_data():
     """Serve the generated option chain tabular data as JSON for a specific date"""
-    # Get date from query parameter, default to 2026-02-20
+    # Get params
     date_str = request.args.get('date', '2026-02-20')
     time_str = request.args.get('time', '') # Optional time HH:MM
     live_mode = request.args.get('live', 'false').lower() == 'true'
+    symbol_mode = request.args.get('symbol', 'NSE').upper() 
     
+    prefix = "mcx" if symbol_mode == "MCX" else "option"
+    script_name = "option_chain_mcx.py" if symbol_mode == "MCX" else "option_chain.py"
+
     if live_mode:
         date_str = datetime.now().strftime('%Y-%m-%d')
         time_str = '' # Ignore time slider in live mode
@@ -70,31 +151,26 @@ def get_option_data():
 
     if time_str:
         clean_time = time_str.replace(":", "")
-        filename = f"option_data_tabular_{date_str}_{clean_time}.csv"
-        meta_filename = f"option_meta_{date_str}_{clean_time}.json"
+        filename = f"{prefix}_data_tabular_{date_str}_{clean_time}.csv"
+        meta_filename = f"{prefix}_meta_{date_str}_{clean_time}.json"
     else:
-        filename = f"option_data_tabular_{date_str}.csv"
-        meta_filename = f"option_meta_{date_str}.json"
+        filename = f"{prefix}_data_tabular_{date_str}.csv"
+        meta_filename = f"{prefix}_meta_{date_str}.json"
         
     csv_path = os.path.join(os.getcwd(), filename)
     
-    # Check if data is stale for TODAY
     is_today = date_str == datetime.now().strftime('%Y-%m-%d')
     needs_fetch = False
     
-    if not os.path.exists(csv_path):
-        needs_fetch = True
-    elif live_mode:
-        # For live mode, refresh if older than 4 minutes (since frontend asks every 5)
-        # Or just always refresh?
-        # Let's refresh if > 1 minute old to be safe.
+    if live_mode:
+        # Scheduler handles live fetches — frontend just reads the latest file
+        # Only trigger a one-time fetch if the file doesn't exist yet at all
+        if not os.path.exists(csv_path):
+            needs_fetch = True  # First run before scheduler has fired
+    elif not os.path.exists(csv_path):
+        needs_fetch = True  # Historical data not cached yet
+    elif is_today and not time_str:
         file_mtime = os.path.getmtime(csv_path)
-        if time.time() - file_mtime > 60:
-            needs_fetch = True
-    elif is_today and not time_str: # Only auto-refresh if no specific static time is set
-        # If file exists but is for today, check age
-        file_mtime = os.path.getmtime(csv_path)
-        # Refresh if older than 60 seconds
         if time.time() - file_mtime > 60:
             print(f"Data for today is stale ({int(time.time() - file_mtime)}s old). Refreshing...")
             needs_fetch = True
@@ -105,7 +181,6 @@ def get_option_data():
         try:
             with open(meta_path, 'r') as f:
                 existing_meta = json.load(f)
-            # If there was an auth error recently (and we haven't manually refreshed), skip auto-fetch
             if existing_meta.get("error") and "Invalid token" in existing_meta.get("error", ""):
                 print("Skipping auto-fetch due to existing invalid token error.")
                 return jsonify({
@@ -116,55 +191,47 @@ def get_option_data():
             pass
 
     if needs_fetch:
-        # Trigger fetch if not found or stale
-        # Note: fetching takes time, this might timeout the request if it takes > 30s
-        # For better UX, this should be async, but for now we'll do blocking
-        try:
-            print(f"Fetching data for {date_str} {time_str} (Live: {live_mode})...")
-            # Run the fetcher script with the date
-            # Ensure python path is correct
-            python_exe = sys.executable if 'sys' in globals() else 'python'
-            
-            cmd = [python_exe, "-u", "option_chain.py", date_str]
-            if live_mode:
-                cmd.append("--live")
-            elif time_str:
-                cmd.append(time_str)
-                
-            subprocess.run(cmd, check=True, timeout=300)
-            
-            # Check again
-            if not os.path.exists(csv_path):
-                 # Try to load meta even if csv doesn't exist (e.g. market closed, no data yet)
-                 meta_path = os.path.join(os.getcwd(), meta_filename)
-                 if os.path.exists(meta_path):
-                     with open(meta_path, 'r') as f:
-                         meta = json.load(f)
-                     
-                     if meta.get("error"):
-                         return jsonify({
-                             "error": meta["error"],
-                             "meta": meta
-                         }), 200
+        lock = _fetch_locks.get(symbol_mode, threading.Lock())
+        acquired = lock.acquire(timeout=310)
+        if not acquired:
+            print(f"Lock timeout for {symbol_mode}, serving existing data if any.")
+        else:
+            try:
+                # Re-check after lock: another tab may have already fetched
+                if os.path.exists(csv_path) and time.time() - os.path.getmtime(csv_path) < 60:
+                    print(f"Data already fresh (fetched by another tab). Skipping fetch.")
+                else:
+                    print(f"Fetching {symbol_mode} data for {date_str} {time_str} (Live: {live_mode})...")
+                    cmd = [sys.executable, "-u", script_name, date_str]
+                    if live_mode:
+                        cmd.append("--live")
+                    elif time_str:
+                        cmd.append(time_str)
+                    subprocess.run(cmd, check=True, timeout=300)
+            except subprocess.CalledProcessError:
+                print("Data fetch script failed.")
+                return jsonify({"error": "Data fetch script failed. Check server logs."}), 500
+            except Exception as e:
+                return jsonify({"error": f"Error fetching data: {str(e)}"}), 500
+            finally:
+                try:
+                    lock.release()
+                except RuntimeError:
+                    pass  # already released
 
-                     if meta.get("expired_contracts"):
-                         return jsonify({
-                             "error": f"Contracts for {date_str} have expired and are not available.",
-                             "meta": meta
-                         }), 200 # Return 200 so frontend can handle meta display
-                         
-                     return jsonify({
-                         "data": [],
-                         "meta": meta
-                     })
-                     
-                 return jsonify({"error": f"No data available for {date_str}. Market might be closed or data missing."}), 404
-                 
-        except subprocess.CalledProcessError as e:
-            print(f"Data fetch script failed.")
-            return jsonify({"error": f"Data fetch script failed. Check server logs."}), 500
-        except Exception as e:
-            return jsonify({"error": f"Error fetching data: {str(e)}"}), 500
+        # Post-fetch: if CSV still missing, check meta for reason
+        if not os.path.exists(csv_path):
+            meta_path = os.path.join(os.getcwd(), meta_filename)
+            if os.path.exists(meta_path):
+                with open(meta_path, 'r') as f:
+                    meta = json.load(f)
+                if meta.get("error"):
+                    return jsonify({"error": meta["error"], "meta": meta}), 200
+                if meta.get("expired_contracts"):
+                    return jsonify({"error": f"Contracts for {date_str} have expired.", "meta": meta}), 200
+                return jsonify({"data": [], "meta": meta})
+            return jsonify({"error": f"No data available for {date_str}. Market might be closed."}), 404
+
 
     try:
         df = pd.read_csv(csv_path)
@@ -193,8 +260,21 @@ def get_option_data():
     except Exception as e:
         return jsonify({"error": f"Failed to load data: {str(e)}"}), 500
 
+
 if __name__ == '__main__':
-    import sys # Import here to use in the route if needed
-    port = int(os.getenv("OPTION_DASHBOARD_PORT", 8002))
-    print(f"Starting Option Chain Dashboard on port {port}...")
-    app.run(host='0.0.0.0', port=8010, debug=False)
+
+    print(f"Starting Option Chain Dashboard on port {8010}...")
+    print(f"Starting independent schedulers (every {FETCH_INTERVAL_SECONDS}s during market hours):")
+
+    # One independent thread per symbol — NSE and MCX never block each other
+    for sym, (start_s, end_s, script, prefix) in MARKET_HOURS.items():
+        t = threading.Thread(
+            target=_symbol_scheduler,
+            args=(sym, start_s, end_s, script),
+            daemon=True,
+            name=f"Scheduler-{sym}"
+        )
+        t.start()
+        print(f"  [{sym}] {start_s} - {end_s} IST -> {script}")
+
+    app.run(host='0.0.0.0', port=8010, debug=False, threaded=True)
