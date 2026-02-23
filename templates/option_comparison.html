@@ -571,48 +571,66 @@
 
                 const traces = [];
 
-                selectedInstruments.forEach(symbol => {
-                    if (!groupedData[symbol]) return;
-
-                    const isCE = symbol.includes('CE');
-                    const isPE = symbol.includes('PE');
-                    
-                    // Dynamic Color Generation
-                    // CE = Green hues, PE = Red hues
-                    let color;
-                    if (isCE) {
-                        // Generate varied greens
-                        // Use symbol hash to pick a stable variation
-                        let hash = 0;
-                        for (let i = 0; i < symbol.length; i++) {
-                            hash = symbol.charCodeAt(i) + ((hash << 5) - hash);
-                        }
-                        const lightness = 25 + (Math.abs(hash) % 40); // 25% to 65% lightness
-                        color = `hsl(120, 100%, ${lightness}%)`;
-                    } else if (isPE) {
-                        // Generate varied reds
-                        let hash = 0;
-                        for (let i = 0; i < symbol.length; i++) {
-                            hash = symbol.charCodeAt(i) + ((hash << 5) - hash);
-                        }
-                        const lightness = 35 + (Math.abs(hash) % 30); // 35% to 65% lightness
-                        color = `hsl(0, 100%, ${lightness}%)`;
-                    } else {
-                        color = '#888888';
+                if (metric === 'spot_price') {
+                    // For Spot Price, we only need ONE trace (the index) 
+                    // since all symbols share the same spot_price data points
+                    const firstSym = selectedInstruments[0];
+                    if (groupedData[firstSym]) {
+                        traces.push({
+                            x: groupedData[firstSym].x,
+                            y: groupedData[firstSym].rowData.map(r => r[metric]),
+                            mode: 'lines',
+                            name: 'Nifty 50 Index',
+                            line: {
+                                width: 3,
+                                color: '#007bff'
+                            }
+                        });
                     }
+                } else {
+                    selectedInstruments.forEach(symbol => {
+                        if (!groupedData[symbol]) return;
 
-                    traces.push({
-                        x: groupedData[symbol].x,
-                        y: groupedData[symbol].rowData.map(r => r[metric]),
-                        mode: 'lines',
-                        name: symbol,
-                        line: {
-                            dash: isPE ? 'dash' : 'solid',
-                            width: 2,
-                            color: color
+                        const isCE = symbol.includes('CE');
+                        const isPE = symbol.includes('PE');
+                        
+                        // Dynamic Color Generation
+                        // CE = Green hues, PE = Red hues
+                        let color;
+                        if (isCE) {
+                            // Generate varied greens
+                            // Use symbol hash to pick a stable variation
+                            let hash = 0;
+                            for (let i = 0; i < symbol.length; i++) {
+                                hash = symbol.charCodeAt(i) + ((hash << 5) - hash);
+                            }
+                            const lightness = 25 + (Math.abs(hash) % 40); // 25% to 65% lightness
+                            color = `hsl(120, 100%, ${lightness}%)`;
+                        } else if (isPE) {
+                            // Generate varied reds
+                            let hash = 0;
+                            for (let i = 0; i < symbol.length; i++) {
+                                hash = symbol.charCodeAt(i) + ((hash << 5) - hash);
+                            }
+                            const lightness = 35 + (Math.abs(hash) % 30); // 35% to 65% lightness
+                            color = `hsl(0, 100%, ${lightness}%)`;
+                        } else {
+                            color = '#888888';
                         }
+
+                        traces.push({
+                            x: groupedData[symbol].x,
+                            y: groupedData[symbol].rowData.map(r => r[metric]),
+                            mode: 'lines',
+                            name: symbol,
+                            line: {
+                                dash: isPE ? 'dash' : 'solid',
+                                width: 2,
+                                color: color
+                            }
+                        });
                     });
-                });
+                }
 
                 const layout = {
                     margin: { t: 20, r: 20, l: 50, b: 40 },
