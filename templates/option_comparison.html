@@ -293,18 +293,25 @@
             <div>
                 <h2>Metrics (Criteria)</h2>
                 <div class="control-group" id="metric-list">
-                    <label><input type="checkbox" class="metric-cb" value="ltp" checked> LTP</label>
-                    <label><input type="checkbox" class="metric-cb" value="change_in_ltp"> Change in LTP</label>
-                    <label><input type="checkbox" class="metric-cb" value="roc_oi" checked> ROC OI (%)</label>
-                    <label><input type="checkbox" class="metric-cb" value="roc_volume"> ROC Volume (%)</label>
-                    <label><input type="checkbox" class="metric-cb" value="roc_iv"> ROC IV (%)</label>
-                    <label><input type="checkbox" class="metric-cb" value="coi_vol_ratio"> COI/Vol Ratio</label>
-                    <label><input type="checkbox" class="metric-cb" value="spot_price" checked> Spot Price</label>
+                    <label><input type="checkbox" class="metric-cb" value="ltp" onchange="renderCharts()" checked>
+                        LTP</label>
+                    <label><input type="checkbox" class="metric-cb" value="change_in_ltp" onchange="renderCharts()">
+                        Change in LTP</label>
+                    <label><input type="checkbox" class="metric-cb" value="roc_oi" onchange="renderCharts()" checked>
+                        ROC OI (%)</label>
+                    <label><input type="checkbox" class="metric-cb" value="roc_volume" onchange="renderCharts()"> ROC
+                        Volume (%)</label>
+                    <label><input type="checkbox" class="metric-cb" value="roc_iv" onchange="renderCharts()"> ROC IV
+                        (%)</label>
+                    <label><input type="checkbox" class="metric-cb" value="coi_vol_ratio" onchange="renderCharts()">
+                        COI/Vol Ratio</label>
+                    <label><input type="checkbox" class="metric-cb" value="spot_price" onchange="renderCharts()"
+                            checked> Spot Price</label>
                 </div>
             </div>
 
             <button class="btn" style="width: 100%; padding: 10px; background: #007bff; color: white; border: none;"
-                onclick="renderCharts()">Update Charts</button>
+                onclick="fetchData()">Fetch Data Now</button>
             <button class="btn"
                 style="width: 100%; padding: 10px; margin-top: 10px; background: #28a745; color: white; border: none;"
                 onclick="refreshToken()">Refresh Env & Token</button>
@@ -322,7 +329,15 @@
         let currentMode = 'NSE'; // NSE or MCX
 
         function setMode(mode) {
+            if (currentMode === mode) return;
             currentMode = mode;
+
+            // Clear old state
+            rawData = [];
+            document.getElementById('instrument-list').innerHTML = '';
+            document.getElementById('spot-price-display').textContent = '';
+            document.getElementById('expiry-date-display').textContent = '';
+            document.getElementById('last-updated').textContent = '';
 
             // Update UI buttons
             const nseBtn = document.getElementById('btn-nse');
@@ -360,7 +375,7 @@
             document.getElementById('time-display').textContent = sliderToTime(0);
 
             // Use debounced fetch for mode switches too
-            debouncedFetch(100);
+            debouncedFetch(isLiveMode ? 100 : 5000);
         }
 
         async function refreshToken() {
@@ -413,15 +428,14 @@
 
         // Debounce: wait for user to stop interacting before fetching (non-live mode)
         let _fetchDebounceTimer = null;
-        function debouncedFetch(delay = 800) {
+        function debouncedFetch(delay = 5000) {
             const pending = document.getElementById('pending-indicator');
             if (pending) pending.style.display = 'block';
 
             if (isLiveMode) {
-                // Live mode: re-render charts immediately if we have data
+                // Live mode: force fetch to ensure we get data for current symbol
                 if (pending) pending.style.display = 'none';
-                if (rawData.length > 0) renderCharts();
-                else fetchData();
+                fetchData();
                 return;
             }
             clearTimeout(_fetchDebounceTimer);
@@ -434,11 +448,25 @@
         // Slider: update display on every tick (input), fetch only on release (change)
         timeSlider.addEventListener('input', () => {
             timeDisplay.textContent = sliderToTime(timeSlider.value);
+            updateDynamicSpotPrice();
         });
+
+        function updateDynamicSpotPrice() {
+            if (!rawData || rawData.length === 0) return;
+            const val = timeSlider.value;
+            const targetTime = sliderToTime(val);
+
+            // rawData date is "YYYY-MM-DD HH:MM:SS" or similar
+            // We want to find the record closest to targetTime
+            const match = rawData.find(r => r.date.includes(targetTime));
+            if (match && match.spot_price) {
+                document.getElementById('spot-price-display').textContent = `Spot Price: ${match.spot_price}`;
+            }
+        }
 
         timeSlider.addEventListener('change', () => {
             if (!isLiveMode) {
-                debouncedFetch(300); // short delay after release
+                debouncedFetch(5000); // 5 sec delay after release
             }
         });
 
@@ -450,7 +478,7 @@
         datePicker.addEventListener('change', () => {
             checkAutoRefresh();
             if (!isLiveMode) {
-                debouncedFetch(500); // wait 500ms after date change (user may also adjust slider)
+                debouncedFetch(5000); // Wait 5s on date change
             }
         });
 
@@ -530,6 +558,10 @@
         document.getElementById('loading').style.display = 'none'; // Hide loading initially
 
         function fetchData(silent = false) {
+            clearTimeout(_fetchDebounceTimer);
+            const pending = document.getElementById('pending-indicator');
+            if (pending) pending.style.display = 'none';
+
             const date = datePicker.value;
             if (!date) return;
 
@@ -537,7 +569,7 @@
             const sliderVal = document.getElementById('time-slider').value;
             const time = sliderToTime(sliderVal);
 
-            const updateBtn = document.querySelector('button[onclick="renderCharts()"]');
+            const updateBtn = document.querySelector('button[onclick="fetchData()"]');
             if (updateBtn) {
                 updateBtn.disabled = true;
                 updateBtn.textContent = "Fetching Data...";
@@ -546,7 +578,8 @@
             if (!silent) {
                 document.getElementById('loading').style.display = 'flex';
                 let loadingText = `Loading ${currentMode} data for ${date}`;
-                if (time) loadingText += ` at ${time}`;
+                if (isLiveMode) loadingText = `Loading LIVE ${currentMode} data (Selected Date: ${date} overridden)`;
+                else if (time) loadingText += ` at ${time}`;
                 loadingText += `... (May take time if fetching new data)`;
                 document.getElementById('loading').textContent = loadingText;
             }
@@ -620,9 +653,10 @@
                     if (!silent) {
                         initializeControls(false); // full reset
                     } else {
-                        updateControlsMerge(); // smart merge: add new, remove gone, keep selections
+                        updateControlsMerge(); // smart merge
                     }
 
+                    updateDynamicSpotPrice(); // Update sidebar spot price from data
                     document.getElementById('loading').style.display = 'none';
                     renderCharts();
                 })
@@ -649,7 +683,7 @@
             const div = document.createElement('div');
             div.className = 'control-group';
             div.dataset.symbol = sym;
-            div.innerHTML = `<label><input type="checkbox" class="instrument-cb" value="${sym}" ${checked ? 'checked' : ''}> ${sym}</label>`;
+            div.innerHTML = `<label><input type="checkbox" class="instrument-cb" value="${sym}" ${checked ? 'checked' : ''} onchange="renderCharts()"> ${sym}</label>`;
             return div;
         }
 

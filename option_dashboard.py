@@ -136,6 +136,8 @@ def get_option_data():
     live_mode = request.args.get('live', 'false').lower() == 'true'
     symbol_mode = request.args.get('symbol', 'NSE').upper() 
     
+    print(f"[API] Request: symbol={symbol_mode}, date={date_str}, time={time_str}, live={live_mode}")
+
     prefix = "mcx" if symbol_mode == "MCX" else "option"
     script_name = "option_chain_mcx.py" if symbol_mode == "MCX" else "option_chain.py"
 
@@ -237,11 +239,26 @@ def get_option_data():
         df = pd.read_csv(csv_path)
         
         # Load metadata if available
-        meta_path = os.path.join(os.getcwd(), meta_filename)
-        meta = {}
         if os.path.exists(meta_path):
             with open(meta_path, 'r') as f:
                 meta = json.load(f)
+        
+        # Fallback: obtain spot price from file data if meta is missing it
+        if not meta.get("spot_price") and not df.empty and "spot_price" in df.columns:
+            try:
+                if time_str:
+                    # Try to find the nearest match for the requested time
+                    df['date_dt'] = pd.to_datetime(df['date'])
+                    target_dt = pd.to_datetime(f"{date_str} {time_str}")
+                    # Find rows closest to target time
+                    df['diff'] = (df['date_dt'] - target_dt).abs()
+                    best_match = df.sort_values('diff').iloc[0]
+                    meta["spot_price"] = float(best_match["spot_price"])
+                    print(f"[API] Recovered spot price {meta['spot_price']} from CSV for {time_str}")
+                else:
+                    meta["spot_price"] = float(df["spot_price"].iloc[-1])
+            except Exception as e:
+                print(f"[API] Failed to recover spot price from CSV: {e}")
                 
         if meta.get("expired_contracts"):
              return jsonify({
