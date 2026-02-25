@@ -12,11 +12,18 @@ import time
 import sys
 from abc import ABC, abstractmethod
 from dotenv import load_dotenv
+import sentry_sdk
 from candle_fetchers import HistoricalCandleFetcher, IntradayCandleFetcher
 
 # Load environment variables
 load_dotenv()
 load_dotenv("/home/ubuntu/refactor_app/.env")
+
+# Initialize Sentry
+sentry_dsn = os.getenv("SENTRY_DSN")
+if sentry_dsn:
+    sentry_sdk.init(dsn=sentry_dsn, traces_sample_rate=1.0)
+    print(f"[Sentry] Monitoring enabled for {os.path.basename(__file__)}")
 
 def get_spot_key(symbol='CRUDEOIL'):
     """

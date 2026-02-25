@@ -8,3 +8,4 @@ upstox-python-sdk
 scipy
 numpy
 pytz
+sentry-sdk[flask]

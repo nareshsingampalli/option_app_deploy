@@ -2,8 +2,21 @@
 import eventlet
 eventlet.monkey_patch()
 import os
+import sentry_sdk
+from sentry_sdk.integrations.flask import FlaskIntegration
 import json
 import sys
+
+# Initialize Sentry if DSN is provided
+sentry_dsn = os.getenv("SENTRY_DSN")
+if sentry_dsn:
+    sentry_sdk.init(
+        dsn=sentry_dsn,
+        integrations=[FlaskIntegration()],
+        traces_sample_rate=1.0, # Adjust in production
+        profiles_sample_rate=1.0,
+    )
+    print("[Sentry] Dashboard monitoring enabled.")
 import threading
 import pandas as pd
 import subprocess
