@@ -195,7 +195,7 @@ class MarketDataStrategy(ABC):
     @abstractmethod
     def get_instruments(self, spot_price, date_str): pass
     @abstractmethod
-    def get_candle_data(self, key, from_date, to_date): pass
+    def get_candle_data(self, instrument, from_date, to_date): pass
 
 class LiveStrategy(MarketDataStrategy):
     def __init__(self):
@@ -206,13 +206,15 @@ class LiveStrategy(MarketDataStrategy):
         return df['close'].iloc[-1] if df is not None and not df.empty else None
     def get_instruments(self, sp, ds):
         return get_option_chain_instruments(sp, num_strikes=5, reference_date=ds)
-    def get_candle_data(self, key, fd, td):
-        return self.fetcher.fetch(key, "minutes", 5)
+    def get_candle_data(self, instrument, fd, td):
+        return self.fetcher.fetch(instrument['key'], "minutes", 5)
 
 class HistoricalStrategy(MarketDataStrategy):
     def __init__(self):
         self.fetcher = HistoricalCandleFetcher()
+        self.expired_fetcher = ExpiredCandleFetcher()
         self.spot_key = get_spot_key()
+        self.is_expired_mode = False
     def get_spot_price(self, ds, ts):
         spot_price = None
         if ts:
@@ -228,9 +230,52 @@ class HistoricalStrategy(MarketDataStrategy):
                 else: spot_price = df['close'].iloc[-1]
         return spot_price
     def get_instruments(self, sp, ds):
-        return get_option_chain_instruments(sp, num_strikes=5, reference_date=ds)
-    def get_candle_data(self, key, fd, td):
-        return self.fetcher._fetch_single(key, "minutes", 5, fd, td)
+        instrs, exp, is_expired = get_option_chain_instruments(sp, num_strikes=5, reference_date=ds)
+        self.is_expired_mode = is_expired
+        return instrs, exp, is_expired
+    def _format_expired_key(self, key, expiry_dt):
+        """Convert standard key to expired format: EXCHANGE_TYPE|ID|DD-MM-YYYY"""
+        if not key or not expiry_dt: return key
+        if key.count('|') >= 2: return key
+        return f"{key}|{expiry_dt.strftime('%d-%m-%Y')}"
+
+    def get_candle_data(self, instrument, fd, td):
+        instr_key = instrument['key']
+        target_dt = datetime.strptime(td, '%Y-%m-%d')
+        now = datetime.now()
+        
+        last_expiry = None
+        try:
+            # We use the spot_key to get general expired expiries for the commodity
+            expired_dates_str = self.expired_fetcher.fetch_expiries(self.spot_key)
+            if expired_dates_str:
+                expired_dates = []
+                for d in expired_dates_str:
+                    try: expired_dates.append(datetime.strptime(str(d), '%Y-%m-%d'))
+                    except: pass
+                if expired_dates:
+                    last_expiry = max(expired_dates)
+                    print(f"  -> Detected Last Expiry (MCX): {last_expiry.date()}")
+        except Exception as e:
+            print(f"  -> Warning: Failed to detect last_expiry (MCX): {e}")
+
+        use_expired = False
+        if self.is_expired_mode: use_expired = True
+        elif last_expiry and target_dt <= last_expiry:
+            use_expired = True
+            print(f"  -> Target {td} <= Last Expiry {last_expiry.date()}. Switching to Expired API.")
+        else:
+            instr_expiry = instrument.get('expiry')
+            if instr_expiry and instr_expiry.date() < now.date() and target_dt <= instr_expiry:
+                use_expired = True
+                print(f"  -> Instrument expiry {instr_expiry.date()} in past. Switching to Expired API.")
+
+        if use_expired:
+            exp_key = self._format_expired_key(instr_key, instrument.get('expiry'))
+            print(f"  -> Fetching using Expired Key (MCX): {exp_key}")
+            return self.expired_fetcher.fetch_candle_data(exp_key, "5minute", td, fd)
+        else:
+            return self.fetcher._fetch_single(instr_key, "minutes", 5, td, fd)
 
 class OptionChainProcessor:
     def __init__(self, strategy: MarketDataStrategy):
@@ -278,7 +323,7 @@ class OptionChainProcessor:
             spot_map = sm_df['close'].to_dict() if sm_df is not None else {}
             data = []
             for i in instrs:
-                df = self.strategy.get_candle_data(i['key'], ds, ds)
+                df = self.strategy.get_candle_data(i, ds, ds)
                 recs = self.process_data(df, spot_map, i)
                 for r in recs:
                     r['symbol'] = i['symbol']

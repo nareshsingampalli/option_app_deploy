@@ -373,11 +373,62 @@ class HistoricalStrategy(MarketDataStrategy):
     def get_iv_spot_data(self, target_date_str):
         return self.fetcher._fetch_single(self.nifty_key, "minutes", 5, target_date_str, target_date_str)
         
-    def get_candle_data(self, instrument_key, from_date, to_date):
+    def _format_expired_key(self, key, expiry_dt):
+        """Convert standard key to expired format: EXCHANGE_TYPE|ID|DD-MM-YYYY"""
+        if not key or not expiry_dt: return key
+        # If already formatted (contains 2 pipes), return as is
+        if key.count('|') >= 2: return key
+        return f"{key}|{expiry_dt.strftime('%d-%m-%Y')}"
+
+    def get_candle_data(self, instrument, from_date, to_date):
+        # Determine if we need to use the expired fetcher based on dynamic detection of last_expiry
+        symbol = instrument.get('symbol', 'Unknown')
+        instr_key = instrument['key']
+        target_dt = datetime.strptime(to_date, '%Y-%m-%d')
+        now = datetime.now()
+        
+        last_expiry = None
+        try:
+            # We use the Nifty Index key to get the general list of expired dates
+            # (assuming standard expiries apply to all instruments in the chain)
+            print(f"  -> Detecting last_expiry for {symbol}...")
+            expired_dates_str = self.expired_fetcher.fetch_expiries(self.nifty_key)
+            if expired_dates_str:
+                expired_dates = []
+                for d in expired_dates_str:
+                    try:
+                        expired_dates.append(datetime.strptime(str(d), '%Y-%m-%d'))
+                    except:
+                        pass
+                if expired_dates:
+                    last_expiry = max(expired_dates)
+                    print(f"  -> Detected Last Expiry: {last_expiry.date()}")
+        except Exception as e:
+            print(f"  -> Warning: Failed to detect last_expiry: {e}")
+
+        use_expired_fetcher = False
+        
+        # Rule 1: Explicitly flagged by get_instruments
         if self.is_expired_mode:
-            return self.expired_fetcher.fetch_candle_data(instrument_key, "5minute", to_date, from_date)
+            use_expired_fetcher = True
+        # Rule 2: Target Date is on or before Last Expiry (Expired Historical)
+        elif last_expiry and target_dt <= last_expiry:
+            use_expired_fetcher = True
+            print(f"  -> Target {to_date} <= Last Expiry {last_expiry.date()}. Switching to Expired API.")
+        # Rule 3: Safety check - if expiry is in past but not detected in list
         else:
-            return self.fetcher._fetch_single(instrument_key, "minutes", 5, to_date, from_date)
+            instr_expiry = instrument.get('expiry')
+            if instr_expiry and instr_expiry.date() < now.date() and target_dt <= instr_expiry:
+                use_expired_fetcher = True
+                print(f"  -> Instrument expiry {instr_expiry.date()} is in the past. Switching to Expired API.")
+
+        if use_expired_fetcher:
+            # Format key if needed
+            exp_key = self._format_expired_key(instr_key, instrument.get('expiry'))
+            print(f"  -> Fetching using Expired Key: {exp_key}")
+            return self.expired_fetcher.fetch_candle_data(exp_key, "5minute", to_date, from_date)
+        else:
+            return self.fetcher._fetch_single(instr_key, "minutes", 5, to_date, from_date)
 
 class OptionChainProcessor:
     """Context class that executes the data processing workflow using a Strategy."""
@@ -489,7 +540,7 @@ class OptionChainProcessor:
             
             for instr in instruments:
                 print(f"Processing {instr['symbol']}...")
-                df = self.strategy.get_candle_data(instr['key'], target_date_str, target_date_str)
+                df = self.strategy.get_candle_data(instr, target_date_str, target_date_str)
                 records = self.process_data(df, spot_map, instr)
                 
                 if records:

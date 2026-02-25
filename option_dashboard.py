@@ -8,6 +8,7 @@ import subprocess
 import time
 from flask import Flask, render_template, jsonify, request
 from datetime import datetime
+from flask_socketio import SocketIO, emit
 from dotenv import load_dotenv
 
 # Load environment
@@ -15,6 +16,15 @@ load_dotenv()
 load_dotenv("/home/ubuntu/refactor_app/.env")
 
 app = Flask(__name__)
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
+
+@socketio.on('connect')
+def handle_connect():
+    print(f"[WebSocket] Client connected: {request.sid}")
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    print(f"[WebSocket] Client disconnected: {request.sid}")
 
 # Per-symbol fetch locks — prevents concurrent fetches for the same symbol
 _fetch_locks = {
@@ -50,6 +60,8 @@ def _run_fetch(symbol, script):
         print(f"[Scheduler-{symbol}] Fetching live data for {today}...")
         subprocess.run([sys.executable, "-u", script, today, "--live"], timeout=280)
         print(f"[Scheduler-{symbol}] Fetch complete.")
+        # Broadcast update to all clients
+        socketio.emit('data_updated', {'prefix': symbol, 'timestamp': datetime.now().isoformat()}, namespace='/')
     except Exception as e:
         print(f"[Scheduler-{symbol}] Fetch error: {e}")
     finally:
@@ -127,6 +139,7 @@ def refresh_token():
     except Exception as e:
         return jsonify({"error": f"Failed to refresh environment: {str(e)}"}), 500
 
+
 @app.route('/api/option-data')
 def get_option_data():
     """Serve the generated option chain tabular data as JSON for a specific date"""
@@ -164,13 +177,8 @@ def get_option_data():
     is_today = date_str == datetime.now().strftime('%Y-%m-%d')
     needs_fetch = False
     
-    if live_mode:
-        # Scheduler handles live fetches — frontend just reads the latest file
-        # Only trigger a one-time fetch if the file doesn't exist yet at all
-        if not os.path.exists(csv_path):
-            needs_fetch = True  # First run before scheduler has fired
-    elif not os.path.exists(csv_path):
-        needs_fetch = True  # Historical data not cached yet
+    if not os.path.exists(csv_path):
+        needs_fetch = True  
     elif is_today and not time_str:
         file_mtime = os.path.getmtime(csv_path)
         if time.time() - file_mtime > 60:
@@ -294,4 +302,4 @@ if __name__ == '__main__':
         t.start()
         print(f"  [{sym}] {start_s} - {end_s} IST -> {script}")
 
-    app.run(host='0.0.0.0', port=8010, debug=False, threaded=True)
+    socketio.run(app, host='0.0.0.0', port=8010, debug=True)

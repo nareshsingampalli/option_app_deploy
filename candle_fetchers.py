@@ -11,8 +11,8 @@ def timeout_handler(signum, frame):
 
 class BaseCandleFetcher:
     """Base class for candle fetching shared across intraday and historical."""
-    def __init__(self, access_token=None):
-        self.access_token = access_token or os.getenv("UPSTOX_ACCESS_TOKEN")
+    def __init__(self, access_token='eyJ0eXAiOiJKV1QiLCJrZXlfaWQiOiJza192MS4wIiwiYWxnIjoiSFMyNTYifQ.eyJzdWIiOiI4Q0FRNzUiLCJqdGkiOiI2OTllNGU2MmIwNWNhMTYwMDE3ZGUzYTIiLCJpc011bHRpQ2xpZW50IjpmYWxzZSwiaXNQbHVzUGxhbiI6dHJ1ZSwiaWF0IjoxNzcxOTgyNDM0LCJpc3MiOiJ1ZGFwaS1nYXRld2F5LXNlcnZpY2UiLCJleHAiOjE3NzIwNTY4MDB9.BiPUE1cVru3fLGEJKItJiL5SFBV3kgqINmveiLddsDc'):
+        self.access_token = access_token or os.getenv("UPSTOX_ACCESS_TOKEN") or 'eyJ0eXAiOiJKV1QiLCJrZXlfaWQiOiJza192MS4wIiwiYWxnIjoiSFMyNTYifQ.eyJzdWIiOiI4Q0FRNzUiLCJqdGkiOiI2OTllNGU2MmIwNWNhMTYwMDE3ZGUzYTIiLCJpc011bHRpQ2xpZW50IjpmYWxzZSwiaXNQbHVzUGxhbiI6dHJ1ZSwiaWF0IjoxNzcxOTgyNDM0LCJpc3MiOiJ1ZGFwaS1nYXRld2F5LXNlcnZpY2UiLCJleHAiOjE3NzIwNTY4MDB9.BiPUE1cVru3fLGEJKItJiL5SFBV3kgqINmveiLddsDc'
         if not self.access_token:
             raise ValueError("UPSTOX_ACCESS_TOKEN not found in environment or arguments.")
         

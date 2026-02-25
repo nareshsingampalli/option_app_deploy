@@ -206,6 +206,7 @@
             }
         }
     </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
 </head>
 
 <body>
@@ -293,25 +294,24 @@
             <div>
                 <h2>Metrics (Criteria)</h2>
                 <div class="control-group" id="metric-list">
-                    <label><input type="checkbox" class="metric-cb" value="ltp" onchange="renderCharts()" checked>
+                    <label><input type="checkbox" class="metric-cb" value="ltp" checked>
                         LTP</label>
-                    <label><input type="checkbox" class="metric-cb" value="change_in_ltp" onchange="renderCharts()">
+                    <label><input type="checkbox" class="metric-cb" value="change_in_ltp">
                         Change in LTP</label>
-                    <label><input type="checkbox" class="metric-cb" value="roc_oi" onchange="renderCharts()" checked>
+                    <label><input type="checkbox" class="metric-cb" value="roc_oi" checked>
                         ROC OI (%)</label>
-                    <label><input type="checkbox" class="metric-cb" value="roc_volume" onchange="renderCharts()"> ROC
+                    <label><input type="checkbox" class="metric-cb" value="roc_volume"> ROC
                         Volume (%)</label>
-                    <label><input type="checkbox" class="metric-cb" value="roc_iv" onchange="renderCharts()"> ROC IV
+                    <label><input type="checkbox" class="metric-cb" value="roc_iv"> ROC IV
                         (%)</label>
-                    <label><input type="checkbox" class="metric-cb" value="coi_vol_ratio" onchange="renderCharts()">
+                    <label><input type="checkbox" class="metric-cb" value="coi_vol_ratio">
                         COI/Vol Ratio</label>
-                    <label><input type="checkbox" class="metric-cb" value="spot_price" onchange="renderCharts()"
-                            checked> Spot Price</label>
+                    <label><input type="checkbox" class="metric-cb" value="spot_price" checked> Spot Price</label>
                 </div>
             </div>
 
             <button class="btn" style="width: 100%; padding: 10px; background: #007bff; color: white; border: none;"
-                onclick="fetchData()">Fetch Data Now</button>
+                onclick="fetchData()">Update Charts</button>
             <button class="btn"
                 style="width: 100%; padding: 10px; margin-top: 10px; background: #28a745; color: white; border: none;"
                 onclick="refreshToken()">Refresh Env & Token</button>
@@ -486,12 +486,40 @@
         let refreshInterval = null;
         let isLiveMode = false;
 
+        function isMarketOpen(prefix) {
+            // Get current time in IST
+            const now = new Date();
+            const istTime = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+            const day = istTime.getDay(); // 0=Sun, 6=Sat
+            const hour = istTime.getHours();
+            const min = istTime.getMinutes();
+            const timeVal = hour * 100 + min;
+
+            // Weekend Check
+            if (day === 0 || day === 6) return false;
+
+            if (prefix === 'NSE') {
+                return (timeVal >= 915 && timeVal <= 1530);
+            } else if (prefix === 'MCX') {
+                return (timeVal >= 900 && timeVal <= 2330);
+            }
+            return false;
+        }
+
         function toggleLiveMode() {
             const toggle = document.getElementById('live-toggle');
-            isLiveMode = toggle.checked;
-            const datePicker = document.getElementById('date-picker');
+            const isLive = toggle.checked;
+            const prefix = currentMode;
+            // datePicker is already defined globally
 
-            if (isLiveMode) {
+            if (isLive) {
+                if (!isMarketOpen(prefix)) {
+                    alert(`Market is currently closed for ${prefix}. Live mode is only available during market hours (NSE: 09:15-15:30, MCX: 09:00-23:30, Mon-Fri IST).`);
+                    toggle.checked = false;
+                    isLiveMode = false;
+                    return;
+                }
+                isLiveMode = true;
                 datePicker.disabled = true;
                 const today = new Date().toISOString().split('T')[0];
                 datePicker.value = today;
@@ -500,56 +528,72 @@
                 if (!autoRefreshCb.checked) {
                     autoRefreshCb.checked = true;
                 }
-                // 5 minutes = 300000 ms
-                startAutoRefresh(300000);
+                initWebSocket(); // Connect WebSocket
                 debouncedFetch(100);
             } else {
+                isLiveMode = false;
                 datePicker.disabled = false;
-                stopAutoRefresh();
+                stopWebSocket(); // Disconnect WebSocket
                 checkAutoRefresh();
             }
         }
 
-        autoRefreshCb.addEventListener('change', () => {
-            if (autoRefreshCb.checked) {
-                startAutoRefresh(isLiveMode ? 300000 : 60000);
-            } else {
-                stopAutoRefresh();
-            }
-        });
+        // autoRefreshCb.addEventListener('change', () => {
+        //     if (autoRefreshCb.checked) {
+        //         startAutoRefresh(isLiveMode ? 300000 : 60000);
+        //     } else {
+        //         stopAutoRefresh();
+        //     }
+        // });
 
-        function checkAutoRefresh() {
-            const date = datePicker.value;
-            const today = new Date().toISOString().split('T')[0];
-            const refreshGroup = document.getElementById('auto-refresh-group');
+        // WebSocket Integration
+        let socket = null;
 
-            if (date === today) {
-                refreshGroup.style.display = 'flex';
-                // Auto-enable for today
-                if (!autoRefreshCb.checked) {
-                    autoRefreshCb.checked = true;
-                    startAutoRefresh(isLiveMode ? 300000 : 60000);
-                }
-            } else {
-                refreshGroup.style.display = 'none';
-                stopAutoRefresh();
-                autoRefreshCb.checked = false;
+        function initWebSocket() {
+            if (socket && socket.connected) return;
+
+            try {
+                socket = io();
+                console.log("WebSocket connecting...");
+
+                socket.on('connect', () => {
+                    console.log("Connected to WebSocket");
+                });
+
+                socket.on('data_updated', (data) => {
+                    console.log("Data switch detected via WebSocket:", data);
+                    if (data.prefix === currentMode) {
+                        console.log("Automatic reload triggered for", currentMode);
+                        fetchData(true); // silent fetch
+                    }
+                });
+
+                socket.on('disconnect', () => {
+                    console.log("WebSocket disconnected");
+                });
+            } catch (e) {
+                console.error("Failed to initialize WebSocket:", e);
             }
         }
 
-        function startAutoRefresh(interval = 60000) {
-            if (refreshInterval) clearInterval(refreshInterval);
-            refreshInterval = setInterval(() => {
-                console.log("Auto-refreshing...");
-                fetchData(true); // silent refresh
-            }, interval);
+        function stopWebSocket() {
+            if (socket) {
+                console.log("Closing WebSocket connection...");
+                socket.disconnect();
+                socket = null;
+            }
+        }
+
+        function checkAutoRefresh() {
+            // Logic removed for WebSocket implementation
+        }
+
+        function startAutoRefresh(ms) {
+            // Logic removed for WebSocket implementation
         }
 
         function stopAutoRefresh() {
-            if (refreshInterval) {
-                clearInterval(refreshInterval);
-                refreshInterval = null;
-            }
+            // Logic removed for WebSocket implementation
         }
 
         // Fetch data on load
@@ -572,7 +616,7 @@
             const updateBtn = document.querySelector('button[onclick="fetchData()"]');
             if (updateBtn) {
                 updateBtn.disabled = true;
-                updateBtn.textContent = "Fetching Data...";
+                updateBtn.textContent = "Updating Charts...";
             }
 
             if (!silent) {
@@ -664,6 +708,12 @@
                     console.error('Error fetching data:', error);
                     document.getElementById('loading').style.display = 'none';
                     if (!silent) alert('Error loading data. Check console.');
+                })
+                .finally(() => {
+                    if (updateBtn) {
+                        updateBtn.disabled = false;
+                        updateBtn.textContent = "Update Charts";
+                    }
                 });
         }
 
@@ -683,7 +733,7 @@
             const div = document.createElement('div');
             div.className = 'control-group';
             div.dataset.symbol = sym;
-            div.innerHTML = `<label><input type="checkbox" class="instrument-cb" value="${sym}" ${checked ? 'checked' : ''} onchange="renderCharts()"> ${sym}</label>`;
+            div.innerHTML = `<label><input type="checkbox" class="instrument-cb" value="${sym}" ${checked ? 'checked' : ''}> ${sym}</label>`;
             return div;
         }
 
@@ -745,7 +795,6 @@
                 else if (type === 'ce') cb.checked = cb.value.includes('CE');
                 else if (type === 'pe') cb.checked = cb.value.includes('PE');
             });
-            renderCharts();
         }
 
         function renderCharts() {
