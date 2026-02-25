@@ -352,7 +352,7 @@ class OptionChainProcessor:
             data = []
             for i in instrs:
                 # Burst protection: brief sleep between strikes to avoid 429
-                time.sleep(0.1)
+                time.sleep(0.5)
                 
                 df = self.strategy.get_candle_data(i, ds, ds)
                 recs = self.process_data(df, spot_map, i)
@@ -413,7 +413,7 @@ if __name__ == "__main__":
         target_time_str = sys.argv[2]
         
     if live_mode:
-        print(f"Running in TODAY/LIVE MODE for {target_date_str}")
+        print(f"Running in TODAY/LIVE MODE for {target_date_str} {datetime.now().strftime('%H:%M:%S')}")
         strategy = LiveStrategy()
     else:
         # Guard: today's date without live mode (reserved for Live toggle)
@@ -422,7 +422,7 @@ if __name__ == "__main__":
             # We don't run the processor at all to avoid creating files for a blocked request
             sys.exit(0)
 
-        print(f"Running in HISTORICAL MODE for {target_date_str}")
+        print(f"Running in HISTORICAL MODE for {target_date_str} {datetime.now().strftime('%H:%M:%S')}")
         strategy = HistoricalStrategy()
         
     processor = OptionChainProcessor(strategy)

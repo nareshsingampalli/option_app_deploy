@@ -64,7 +64,7 @@ class BaseCandleFetcher:
                 return func(*args, **kwargs)
             except ApiException as e:
                 if e.status == 429:
-                    wait_time = (attempt + 1) * 2 # Exponential backoff
+                    wait_time = (attempt + 1) * 3 # More aggressive backoff
                     print(f"[RateLimit] Hit 429. Waiting {wait_time}s (Attempt {attempt+1}/{max_retries})...")
                     time.sleep(wait_time)
                     continue

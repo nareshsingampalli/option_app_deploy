@@ -230,8 +230,8 @@ def get_option_data():
     if not file_exists:
         needs_fetch = True
     elif live_mode or is_today:
-        # For today/live data, if it's older than 2 minutes, refresh it on-demand
-        if file_age_s > 120:
+        # For today/live data, if it's older than 60 seconds, refresh it on-demand
+        if file_age_s > 60:
             needs_fetch = True
     
     # If it's a specific past date (not today), and file exists, we don't need to re-fetch.
