@@ -127,7 +127,7 @@ def _symbol_scheduler(symbol, start_s, end_s, script):
 
             if (is_startup or is_regular_cycle) and now.minute != last_fetch_min:
                 mode_label = "Startup (1min)" if is_startup else "Regular (5min)"
-                print(f"[Scheduler-{symbol}] Triggering {mode_label} fetch at {now.strftime('%H:%M:%S')}")
+                print(f"[Scheduler-{symbol}] Triggering {mode_label} fetch at {now.strftime('%H:%M')}")
                 _run_fetch(symbol, script)
                 last_fetch_min = now.minute
             
@@ -230,8 +230,8 @@ def get_option_data():
     if not file_exists:
         needs_fetch = True
     elif live_mode or is_today:
-        # For today/live data, if it's older than 60 seconds, refresh it on-demand
-        if file_age_s > 60:
+        # For today/live data, if it's older than 2 minutes, refresh it on-demand
+        if file_age_s > 120:
             needs_fetch = True
     
     # If it's a specific past date (not today), and file exists, we don't need to re-fetch.
@@ -254,16 +254,10 @@ def get_option_data():
             pass
 
     if needs_fetch:
-        # Avoid creating a new lock object on every miss; ensure it's stored
-        if symbol_mode not in _fetch_locks:
-            _fetch_locks[symbol_mode] = threading.Lock()
-        lock = _fetch_locks[symbol_mode]
-        
-        # Don't wait 5 minutes (310s) — if someone else is fetching, 
-        # just serve the current file or return quickly.
-        acquired = lock.acquire(blocking=False)
+        lock = _fetch_locks.get(symbol_mode, threading.Lock())
+        acquired = lock.acquire(timeout=310)
         if not acquired:
-            print(f"[API] Update already in progress for {symbol_mode}. Serving existing/stale data.")
+            print(f"Lock timeout for {symbol_mode}, serving existing data if any.")
         else:
             try:
                 # Re-check after lock: another tab may have already fetched

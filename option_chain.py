@@ -621,9 +621,6 @@ class OptionChainProcessor:
         for inst in instruments:
             print(f"Fetching candles for {inst['symbol']}...")
             try:
-                # Burst protection: brief sleep between strikes to avoid 429
-                time.sleep(0.5)
-                
                 # Candle range: from target date back 5 days to handle ROC on first session candles
                 to_date = target_date_str
                 from_date = (datetime.strptime(target_date_str, '%Y-%m-%d') - timedelta(days=5)).strftime('%Y-%m-%d')
@@ -729,7 +726,7 @@ def _detect_strategy(target_date_str: str,
     #   Today's date is reserved strictly for Live mode. If the --live flag is
     #   missing, any request for today's date will be blocked by the guard below.
     if live_mode:
-        print(f"[StrategyDetect] Zone 1 → LIVE ({target_date_str} {datetime.now().strftime('%H:%M:%S')})")
+        print(f"[StrategyDetect] Zone 1 → LIVE  (live_flag=True, date={target_date_str})")
         return LiveStrategy()
 
     # ── Guard: today's date without live mode ────────────────────────────────
