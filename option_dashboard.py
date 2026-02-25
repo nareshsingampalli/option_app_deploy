@@ -273,7 +273,7 @@ def get_option_data():
                     subprocess.run(cmd, check=True, timeout=300)
             except subprocess.CalledProcessError:
                 print("Data fetch script failed.")
-                return jsonify({"error": "Data fetch script failed. Check server logs."}), 500
+                return jsonify({"error": "Data fetch script failed. Check server logs."}), 200
             except Exception as e:
                 return jsonify({"error": f"Error fetching data: {str(e)}"}), 500
             finally:
@@ -292,8 +292,13 @@ def get_option_data():
                     return jsonify({"error": meta["error"], "meta": meta}), 200
                 if meta.get("expired_contracts"):
                     return jsonify({"error": f"Contracts for {date_str} have expired.", "meta": meta}), 200
-                return jsonify({"data": [], "meta": meta})
-            return jsonify({"error": f"No data available for {date_str}. Market might be closed."}), 404
+                return jsonify({"data": [], "meta": meta}), 200
+            
+            error_msg = f"No data available for {date_str}."
+            if is_today and not live_mode:
+                error_msg += " For today's data, please enable Live mode toggle."
+            
+            return jsonify({"error": error_msg}), 200
 
 
     try:

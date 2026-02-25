@@ -532,22 +532,32 @@
                 }
                 isLiveMode = true;
                 datePicker.disabled = true;
-                const today = new Date().toISOString().split('T')[0];
-                datePicker.value = today;
+
+                // Use local date for Today instead of UTC to avoid timezone mismatches
+                const _now = new Date();
+                const localToday = new Date(_now.getTime() - (_now.getTimezoneOffset() * 60000)).toISOString().split('T')[0];
+                datePicker.value = localToday;
 
                 // Force auto-refresh
-                if (!autoRefreshCb.checked) {
-                    autoRefreshCb.checked = true;
-                }
+                autoRefreshCb.checked = true;
                 initWebSocket(); // Connect WebSocket
                 startAutoRefresh(60000); // 1 minute polling fallback
                 debouncedFetch(100);
             } else {
                 isLiveMode = false;
                 datePicker.disabled = false;
+
+                // Reset to Yesterday when going OFF to avoid hitting the Today guard
+                const _now = new Date();
+                const yesterdayLocal = new Date(_now.getTime() - (_now.getTimezoneOffset() * 60000));
+                yesterdayLocal.setDate(yesterdayLocal.getDate() - 1);
+                const yesterdayStr = yesterdayLocal.toISOString().split('T')[0];
+                datePicker.value = yesterdayStr;
+
                 stopWebSocket(); // Disconnect WebSocket
                 stopAutoRefresh();
                 checkAutoRefresh();
+                debouncedFetch(100); // Reload data for yesterday
             }
         }
 
@@ -664,9 +674,20 @@
             }
 
             fetch(url)
-                .then(response => {
-                    if (!response.ok) throw new Error('Network response was not ok');
-                    return response.json();
+                .then(async response => {
+                    let data = {};
+                    const text = await response.text();
+                    try {
+                        data = JSON.parse(text);
+                    } catch (e) {
+                        throw new Error(`Invalid server response (not JSON)`);
+                    }
+
+                    if (!response.ok) {
+                        // If it's a 404 or 500 but has an error message, throw it as an error object
+                        throw new Error(data.error || `Server Error (${response.status})`);
+                    }
+                    return data;
                 })
                 .then(data => {
                     if (data.error) {
