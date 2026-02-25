@@ -34,10 +34,9 @@ _fetch_locks = {
 
 # ------------------------------------------------------------------
 # Backend Scheduler
-# Runs fetch scripts every FETCH_INTERVAL_SECONDS during market hours.
+# Runs fetch scripts at minute % 5 == 1 during market hours.
 # Frontend is stateless — it just reads precomputed files.
 # ------------------------------------------------------------------
-FETCH_INTERVAL_SECONDS = 330  # 5 minutes 30 seconds
 
 MARKET_HOURS = {
     #  symbol  start      end       script                  prefix
@@ -71,14 +70,15 @@ def _symbol_scheduler(symbol, start_s, end_s, script):
     """
     Independent scheduler for one symbol.
     - Waits until start_s on startup (or next day if already past end_s).
-    - Fetches every FETCH_INTERVAL_SECONDS (5m 30s) within market hours.
+    - Fetches at every minute % 5 == 1 (e.g. 09:16, 09:21) within market hours.
     - Sleeps until next day's start_s once market closes.
     """
     from datetime import timedelta
     start_t = datetime.strptime(start_s, '%H:%M:%S').time()
     end_t   = datetime.strptime(end_s,   '%H:%M:%S').time()
-    print(f"[Scheduler-{symbol}] Started. Market hours: {start_s} - {end_s} IST | Interval: {FETCH_INTERVAL_SECONDS}s")
+    print(f"[Scheduler-{symbol}] Started. Market hours: {start_s} - {end_s} IST | Mode: Minute % 5 == 1")
 
+    last_fetch_min = -1
     while True:
         now = datetime.now()
         cur_secs   = _secs(now.time())
@@ -89,6 +89,7 @@ def _symbol_scheduler(symbol, start_s, end_s, script):
             # Before market open — wait until start time today
             wait = start_secs - cur_secs
             print(f"[Scheduler-{symbol}] Pre-market. Sleeping {wait}s until {start_s}...")
+            last_fetch_min = -1 # Reset for the new day
             time.sleep(wait)
 
         elif cur_secs > end_secs:
@@ -96,12 +97,18 @@ def _symbol_scheduler(symbol, start_s, end_s, script):
             tomorrow_start = datetime.combine(now.date() + timedelta(days=1), start_t)
             wait = (tomorrow_start - now).total_seconds()
             print(f"[Scheduler-{symbol}] Market closed. Sleeping {wait:.0f}s until tomorrow {start_s}...")
+            last_fetch_min = -1
             time.sleep(max(1, wait))
 
         else:
-            # In market hours — fetch then sleep for interval
-            _run_fetch(symbol, script)
-            time.sleep(FETCH_INTERVAL_SECONDS)
+            # In market hours — check for minute % 5 == 1 logic
+            if now.minute % 5 == 1 and now.minute != last_fetch_min:
+                print(f"[Scheduler-{symbol}] Triggering fetch at {now.strftime('%H:%M')}")
+                _run_fetch(symbol, script)
+                last_fetch_min = now.minute
+            
+            # Sleep for a short burst to re-check
+            time.sleep(15)
 
 
 @app.route('/')
@@ -177,12 +184,10 @@ def get_option_data():
     is_today = date_str == datetime.now().strftime('%Y-%m-%d')
     needs_fetch = False
     
+    # Only fetch via API if the file doesn't exist AND it's not a live mode request
+    # Live mode / Today's data is exclusively managed by the background scheduler.
     if not os.path.exists(csv_path):
-        needs_fetch = True  
-    elif is_today and not time_str:
-        file_mtime = os.path.getmtime(csv_path)
-        if time.time() - file_mtime > 60:
-            print(f"Data for today is stale ({int(time.time() - file_mtime)}s old). Refreshing...")
+        if not (is_today and not time_str):
             needs_fetch = True
 
     # Check if we should skip fetch due to existing auth error in metadata
@@ -268,9 +273,9 @@ def get_option_data():
             except Exception as e:
                 print(f"[API] Failed to recover spot price from CSV: {e}")
                 
-        if meta.get("expired_contracts"):
+        if meta.get("expired_contracts") and not meta.get("has_data"):
              return jsonify({
-                 "error": f"Contracts for {date_str} have expired and are not available.",
+                 "error": f"Archived contracts for {date_str} are not available.",
                  "meta": meta
              })
 
@@ -289,7 +294,7 @@ def get_option_data():
 if __name__ == '__main__':
 
     print(f"Starting Option Chain Dashboard on port {8010}...")
-    print(f"Starting independent schedulers (every {FETCH_INTERVAL_SECONDS}s during market hours):")
+    print(f"Starting independent schedulers (Mode: Minute % 5 == 1 during market hours):")
 
     # One independent thread per symbol — NSE and MCX never block each other
     for sym, (start_s, end_s, script, prefix) in MARKET_HOURS.items():
@@ -302,4 +307,4 @@ if __name__ == '__main__':
         t.start()
         print(f"  [{sym}] {start_s} - {end_s} IST -> {script}")
 
-    socketio.run(app, host='0.0.0.0', port=8010, debug=True)
+    socketio.run(app, host='0.0.0.0', port=8010, debug=False)

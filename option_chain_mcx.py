@@ -195,6 +195,8 @@ class MarketDataStrategy(ABC):
     @abstractmethod
     def get_instruments(self, spot_price, date_str): pass
     @abstractmethod
+    def get_iv_spot_data(self, date_str): pass
+    @abstractmethod
     def get_candle_data(self, instrument, from_date, to_date): pass
 
 class LiveStrategy(MarketDataStrategy):
@@ -203,11 +205,21 @@ class LiveStrategy(MarketDataStrategy):
         self.spot_key = get_spot_key()
     def get_spot_price(self, ds, ts):
         df = self.fetcher.fetch(self.spot_key, "minutes", 5)
+        if df is None or df.empty:
+            df = self.fetcher.fetch(self.spot_key, "minutes", 1)
         return df['close'].iloc[-1] if df is not None and not df.empty else None
     def get_instruments(self, sp, ds):
-        return get_option_chain_instruments(sp, num_strikes=5, reference_date=ds)
+        return get_option_chain_instruments(sp, num_strikes=3, reference_date=ds)
     def get_candle_data(self, instrument, fd, td):
-        return self.fetcher.fetch(instrument['key'], "minutes", 5)
+        df = self.fetcher.fetch(instrument['key'], "minutes", 5)
+        if df is None or df.empty:
+            df = self.fetcher.fetch(instrument['key'], "minutes", 1)
+        return df
+    def get_iv_spot_data(self, ds):
+        df = self.fetcher.fetch(self.spot_key, "minutes", 5)
+        if df is None or df.empty:
+            df = self.fetcher.fetch(self.spot_key, "minutes", 1)
+        return df
 
 class HistoricalStrategy(MarketDataStrategy):
     """Strategy for fetching Historical MCX data (Active historicals)."""
@@ -217,6 +229,7 @@ class HistoricalStrategy(MarketDataStrategy):
         
     def get_spot_price(self, ds, ts):
         spot_price = None
+        target_dt = datetime.strptime(ds, '%Y-%m-%d')
         if ts:
              df = self.fetcher._fetch_single(self.spot_key, "minutes", 5, ds, ds)
              if df is not None and not df.empty:
@@ -224,17 +237,30 @@ class HistoricalStrategy(MarketDataStrategy):
                 try: spot_price = df.iloc[df.index.get_indexer([dt], method='nearest')[0]]['close']
                 except: pass
         if spot_price is None:
+            # Strictly fetch Daily for the target date
             df = self.fetcher.fetch(self.spot_key, timeframe="days", lookback_days=30)
             if df is not None and not df.empty:
-                if ds in df.index.strftime('%Y-%m-%d'): spot_price = df.loc[ds]['close']
-                else: spot_price = df['close'].iloc[-1]
+                available_dates = df.index.strftime('%Y-%m-%d')
+                if ds in available_dates:
+                    spot_price = df.loc[ds]['close']
+                else:
+                    # Find nearest previous Close
+                    target_dt_aware = target_dt
+                    if df.index.tzinfo is not None:
+                         target_dt_aware = target_dt.replace(tzinfo=df.index.tzinfo)
+                    
+                    past_data = df[df.index <= target_dt_aware]
+                    if not past_data.empty:
+                        spot_price = past_data['close'].iloc[-1]
         return spot_price
 
     def get_instruments(self, sp, ds):
-        return get_option_chain_instruments(sp, num_strikes=5, reference_date=ds)
+        return get_option_chain_instruments(sp, num_strikes=3, reference_date=ds)
 
     def get_candle_data(self, instrument, fd, td):
         return self.fetcher._fetch_single(instrument['key'], "minutes", 5, td, fd)
+    def get_iv_spot_data(self, ds):
+        return self.fetcher._fetch_single(self.spot_key, "minutes", 5, ds, ds)
 
 class ExpiredStrategy(MarketDataStrategy):
     """Strategy for fetching data for recently Expired MCX contracts."""
@@ -254,16 +280,25 @@ class ExpiredStrategy(MarketDataStrategy):
                 except: pass
         if spot_price is None:
             print(f"Fetching Expired MCX Spot data (Daily) for {ds}...")
-            from_dt = (target_dt - timedelta(days=7)).strftime('%Y-%m-%d')
+            from_dt = (target_dt - timedelta(days=10)).strftime('%Y-%m-%d')
             df = self.fetcher.fetch_candle_data(self.spot_key, "day", ds, from_dt)
             if df is not None and not df.empty:
-                if ds in df.index.strftime('%Y-%m-%d'): spot_price = df.loc[ds]['close']
-                else: spot_price = df['close'].iloc[-1]
+                available_dates = df.index.strftime('%Y-%m-%d')
+                if ds in available_dates:
+                    spot_price = df.loc[ds]['close']
+                else:
+                    # Find nearest previous Close
+                    target_dt_aware = target_dt
+                    if df.index.tzinfo is not None:
+                         target_dt_aware = target_dt.replace(tzinfo=df.index.tzinfo)
+
+                    past_data = df[df.index <= target_dt_aware]
+                    if not past_data.empty:
+                        spot_price = past_data['close'].iloc[-1]
         return spot_price
 
     def get_instruments(self, sp, ds):
-        # Note: MCX expired instruments might need special handling if not in exchange json
-        return get_option_chain_instruments(sp, num_strikes=5, reference_date=ds)
+        return get_option_chain_instruments(sp, num_strikes=3, reference_date=ds)
 
     def _format_expired_key(self, key, expiry_dt):
         if not key or not expiry_dt: return key
@@ -273,6 +308,8 @@ class ExpiredStrategy(MarketDataStrategy):
     def get_candle_data(self, instrument, fd, td):
         exp_key = self._format_expired_key(instrument['key'], instrument.get('expiry'))
         return self.fetcher.fetch_candle_data(exp_key, "5minute", td, fd)
+    def get_iv_spot_data(self, ds):
+        return self.fetcher.fetch_candle_data(self.spot_key, "5minute", ds, ds)
 
 class OptionChainProcessor:
     def __init__(self, strategy: MarketDataStrategy):
@@ -297,7 +334,8 @@ class OptionChainProcessor:
         df['roc_volume'] = (df['volume'].pct_change() * 100).replace([np.inf, -np.inf], 0).fillna(0).round(2)
         df['roc_iv'] = (df['iv'].pct_change() * 100).replace([np.inf, -np.inf], 0).fillna(0).round(2)
         df['coi_vol_ratio'] = (df['change_in_oi'] / df['volume']).replace([np.inf, -np.inf], 0).fillna(0).round(4)
-        df['spot_price'] = df.index.map(spot_map).fillna(0)
+        df['spot_price'] = df.index.map(spot_map)
+        df['spot_price'] = df['spot_price'].replace(0, pd.NA).ffill().bfill().fillna(0)
         res = df[['ltp', 'change_in_ltp', 'roc_oi', 'roc_volume', 'roc_iv', 'coi_vol_ratio', 'spot_price']].reset_index()
         # MCX time filtering (09:00 - 23:30)
         res = res[(res['date'].dt.time >= datetime.strptime("09:00", "%H:%M").time())]
@@ -312,10 +350,7 @@ class OptionChainProcessor:
             if not instrs: return self.save_meta(sp, ds, ts, None, False, error="No instruments")
             
             # Fetch spot data for IV mapping
-            if isinstance(self.strategy, LiveStrategy):
-                sm_df = self.strategy.fetcher.fetch(get_spot_key(), "minutes", 5)
-            else:
-                sm_df = self.strategy.fetcher._fetch_single(get_spot_key(), "minutes", 5, ds, ds)
+            sm_df = self.strategy.get_iv_spot_data(ds)
             
             spot_map = sm_df['close'].to_dict() if sm_df is not None else {}
             data = []
@@ -343,7 +378,13 @@ class OptionChainProcessor:
             "expired_contracts": expired_contracts,
             "error": error
         }
-        with open(meta_file, 'w') as f: json.dump(meta, f, indent=4)
+        if not os.path.exists(meta_file):
+             with open(meta_file, 'w') as f: json.dump(meta, f, indent=4)
+        else:
+             # update existing
+             with open(meta_file, 'r') as f: existing = json.load(f)
+             existing.update(meta)
+             with open(meta_file, 'w') as f: json.dump(existing, f, indent=4)
 
     def save_results(self, data, sp, ds, ts, exp, is_expired=False):
         suffix = f"_{ts.replace(':', '')}" if ts else ""
@@ -372,7 +413,7 @@ if __name__ == "__main__":
     if len(sys.argv) > 2 and not sys.argv[2].startswith("--"):
         target_time_str = sys.argv[2]
         
-    if live_mode or target_date_str == today_str:
+    if live_mode or (target_date_str == today_str and not target_time_str):
         print(f"Running in LIVE MODE for {target_date_str}")
         strategy = LiveStrategy()
     else:
@@ -393,7 +434,10 @@ if __name__ == "__main__":
             print(f"Date {target_date_str} is Expired (Last Expiry: {last_expiry.date()}). Using ExpiredStrategy.")
             strategy = ExpiredStrategy()
         else:
-            print(f"Running in HISTORICAL MODE for {target_date_str}")
+            if target_date_str == today_str:
+                print(f"Running in TIME-BASED INTRADAY MODE for {target_date_str} at {target_time_str}")
+            else:
+                print(f"Running in HISTORICAL MODE for {target_date_str}")
             strategy = HistoricalStrategy()
         
     processor = OptionChainProcessor(strategy)

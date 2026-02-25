@@ -5,6 +5,8 @@ from datetime import datetime, timedelta
 import upstox_client
 from upstox_client.rest import ApiException
 import time
+import requests
+import urllib.parse
 
 def timeout_handler(signum, frame):
     raise TimeoutError("API request timed out")
@@ -185,48 +187,67 @@ class HistoricalCandleFetcher(BaseCandleFetcher):
         return self.fetch(instrument_key, timeframe, interval_num, lookback_days=90)
 
 class ExpiredCandleFetcher(BaseCandleFetcher):
-    """Fetches candle data for expired instruments."""
+    """Fetches candle data for expired instruments using direct HTTP REST API calls."""
     def __init__(self, access_token=None):
         super().__init__(access_token)
-        self.expired_api = upstox_client.ExpiredInstrumentApi(self.api_client)
+        self.headers = {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'Authorization': f'Bearer {self.access_token}'
+        }
 
     def fetch_contracts(self, underlying_key, expiry_date):
         """Fetch expired option contracts for a given underlying and expiry date."""
         try:
-            # expiry_date format: YYYY-MM-DD
-            response = self.expired_api.get_expired_option_contracts(
-                instrument_key=underlying_key,
-                expiry_date=expiry_date
-            )
-            return getattr(response, 'data', [])
-        except ApiException as e:
-            print(f"[ERROR] ApiException in fetch_contracts: {e}")
+            # Safely encode the pipe character and spaces, ex: NSE_INDEX|Nifty 50 -> NSE_INDEX%7CNifty%2050
+            safe_key = urllib.parse.quote(underlying_key)
+            url = f"https://api.upstox.com/v2/expired-instruments/option/contract?instrument_key={safe_key}&expiry_date={expiry_date}"
+            
+            response = requests.get(url, headers=self.headers, timeout=15)
+            if response.status_code == 200:
+                data = response.json()
+                return data.get('data', [])
+            else:
+                print(f"[ERROR] fetch_contracts: {response.status_code} - {response.text}")
+                return []
+        except Exception as e:
+            print(f"[ERROR] fetch_contracts Exception: {e}")
             return []
 
     def fetch_expiries(self, underlying_key):
-        """Fetch available expiries for an underlying."""
+        """Fetch available expiries for an underlying index/instrument."""
         try:
-            response = self.expired_api.get_expiries(
-                instrument_key=underlying_key
-            )
-            return getattr(response, 'data', [])
-        except ApiException as e:
-            print(f"[ERROR] ApiException in fetch_expiries: {e}")
+            safe_key = urllib.parse.quote(underlying_key)
+            url = f"https://api.upstox.com/v2/expired-instruments/expiries?instrument_key={safe_key}"
+            
+            response = requests.get(url, headers=self.headers, timeout=15)
+            if response.status_code == 200:
+                data = response.json()
+                return data.get('data', [])
+            else:
+                print(f"[ERROR] fetch_expiries: {response.status_code} - {response.text}")
+                return []
+        except Exception as e:
+            print(f"[ERROR] fetch_expiries Exception: {e}")
             return []
 
     def fetch_candle_data(self, instrument_key, interval_str, to_date, from_date):
         """
         Fetch historical candle data for an expired instrument.
-        interval_str: '1minute', '5minute', '30minute', 'day', etc.
+        interval_str expects values like '1minute', '5minute', etc.
         """
         try:
-            response = self.expired_api.get_expired_historical_candle_data(
-                expired_instrument_key=instrument_key,
-                interval=interval_str,
-                to_date=to_date,
-                from_date=from_date
-            )
-            return self._process_response(response)
-        except ApiException as e:
-            print(f"[ERROR] ApiException in fetch_candle_data: {e}")
+            # Encode instrument_key, ex: NSE_FO|64844|24-02-2026 -> NSE_FO%7C64844%7C24-02-2026
+            safe_key = urllib.parse.quote(instrument_key)
+            url = f"https://api.upstox.com/v2/expired-instruments/historical-candle/{safe_key}/{interval_str}/{to_date}/{from_date}"
+            
+            response = requests.get(url, headers=self.headers, timeout=15)
+            if response.status_code == 200:
+                # Reuse the base class parser which safely extracts the 'candles' array into Pandas
+                return self._process_response(response.json())
+            else:
+                print(f"[ERROR] fetch_candle_data: {response.status_code} - {response.text}")
+                return None
+        except Exception as e:
+            print(f"[ERROR] fetch_candle_data Exception: {e}")
             return None

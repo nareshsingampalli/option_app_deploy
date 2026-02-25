@@ -5,6 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Advanced Option Chain Visualizer</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
     <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
     <style>
         body {
@@ -206,7 +207,6 @@
             }
         }
     </style>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
 </head>
 
 <body>
@@ -529,11 +529,13 @@
                     autoRefreshCb.checked = true;
                 }
                 initWebSocket(); // Connect WebSocket
+                startAutoRefresh(60000); // 1 minute polling fallback
                 debouncedFetch(100);
             } else {
                 isLiveMode = false;
                 datePicker.disabled = false;
                 stopWebSocket(); // Disconnect WebSocket
+                stopAutoRefresh();
                 checkAutoRefresh();
             }
         }
@@ -588,17 +590,30 @@
             // Logic removed for WebSocket implementation
         }
 
-        function startAutoRefresh(ms) {
-            // Logic removed for WebSocket implementation
+        let _autoRefreshInterval = null;
+        function startAutoRefresh(ms = 60000) {
+            stopAutoRefresh();
+            console.log("Starting auto-refresh polling every", ms, "ms");
+            _autoRefreshInterval = setInterval(() => {
+                if (isLiveMode) {
+                    console.log("Auto-refresh polling heartbeat...");
+                    fetchData(true); // silent fetch
+                }
+            }, ms);
         }
 
         function stopAutoRefresh() {
-            // Logic removed for WebSocket implementation
+            if (_autoRefreshInterval) {
+                console.log("Stopping auto-refresh polling.");
+                clearInterval(_autoRefreshInterval);
+                _autoRefreshInterval = null;
+            }
         }
 
         // Fetch data on load
-        // checkAutoRefresh(); // Check if today matches
-        // fetchData();
+        const today = new Date().toISOString().split('T')[0];
+        if (!datePicker.value) datePicker.value = today;
+        fetchData();
         document.getElementById('loading').style.display = 'none'; // Hide loading initially
 
         function fetchData(silent = false) {
@@ -652,11 +667,12 @@
                             if (data.meta.spot_price) {
                                 document.getElementById('spot-price-display').textContent = `Spot Price: ${data.meta.spot_price}`;
                             }
-                            if (data.meta.expired_contracts) {
-                                document.getElementById('expiry-date-display').textContent = 'Expired Contracts Unavailable';
+                            if (data.meta.expired_contracts && !data.meta.has_data) {
+                                document.getElementById('expiry-date-display').textContent = 'Archived Contracts Unavailable';
                                 document.getElementById('expiry-date-display').style.color = 'red';
-                            } else {
-                                document.getElementById('expiry-date-display').textContent = '';
+                            } else if (data.meta.expiry_date) {
+                                document.getElementById('expiry-date-display').textContent = `Expiry: ${data.meta.expiry_date} (Archived)`;
+                                document.getElementById('expiry-date-display').style.color = '#ff9800';
                             }
                         }
                         return;
@@ -675,7 +691,9 @@
                                 document.getElementById('spot-price-display').textContent = `Spot Price: ${data.meta.spot_price}`;
                             }
                             if (data.meta.expiry_date) {
-                                document.getElementById('expiry-date-display').textContent = `Expiry: ${data.meta.expiry_date}`;
+                                let label = data.meta.expired_contracts ? `Expiry: ${data.meta.expiry_date} (Archived)` : `Expiry: ${data.meta.expiry_date}`;
+                                document.getElementById('expiry-date-display').textContent = label;
+                                if (data.meta.expired_contracts) document.getElementById('expiry-date-display').style.color = '#ff9800';
                             } else {
                                 document.getElementById('expiry-date-display').textContent = '';
                             }
