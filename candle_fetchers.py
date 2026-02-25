@@ -58,14 +58,16 @@ class BaseCandleFetcher:
 
     def _execute_with_retry(self, func, *args, **kwargs):
         """Executes an API function with retries on rate limiting (429)."""
-        max_retries = 3
+        max_retries = 5
+        import random
         for attempt in range(max_retries):
             try:
                 return func(*args, **kwargs)
             except ApiException as e:
                 if e.status == 429:
-                    wait_time = (attempt + 1) * 3 # More aggressive backoff
-                    print(f"[RateLimit] Hit 429. Waiting {wait_time}s (Attempt {attempt+1}/{max_retries})...")
+                    # Exponential backoff with jitter
+                    wait_time = (attempt + 1) * 3 + random.uniform(0, 2)
+                    print(f"[RateLimit] Hit 429. Waiting {wait_time:.1f}s (Attempt {attempt+1}/{max_retries})...")
                     time.sleep(wait_time)
                     continue
                 raise e
@@ -218,19 +220,20 @@ class ExpiredCandleFetcher(BaseCandleFetcher):
 
     def _execute_with_retried_get(self, url):
         """Helper for requests.get with 429 retries."""
-        max_retries = 3
+        max_retries = 5
+        import random
         for attempt in range(max_retries):
             try:
                 resp = requests.get(url, headers=self.headers, timeout=15)
                 if resp.status_code == 429:
-                    wait_time = (attempt + 1) * 2
-                    print(f"[RateLimit] Hit 429 (REST). Waiting {wait_time}s...")
+                    wait_time = (attempt + 1) * 3 + random.uniform(0, 2)
+                    print(f"[RateLimit] Hit 429 (REST). Waiting {wait_time:.1f}s...")
                     time.sleep(wait_time)
                     continue
                 return resp
             except Exception as e:
                 if attempt == max_retries - 1: raise e
-                time.sleep(1)
+                time.sleep(2)
         return None
 
     def fetch_expiries(self, underlying_key):

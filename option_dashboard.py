@@ -127,7 +127,7 @@ def _symbol_scheduler(symbol, start_s, end_s, script):
 
             if (is_startup or is_regular_cycle) and now.minute != last_fetch_min:
                 mode_label = "Startup (1min)" if is_startup else "Regular (5min)"
-                print(f"[Scheduler-{symbol}] Triggering {mode_label} fetch at {now.strftime('%H:%M')}")
+                print(f"[Scheduler-{symbol}] Triggering {mode_label} fetch at {now.strftime('%H:%M:%S')}")
                 _run_fetch(symbol, script)
                 last_fetch_min = now.minute
             
