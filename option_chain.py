@@ -327,9 +327,29 @@ class HistoricalStrategy(MarketDataStrategy):
         # Logic to fetch historical spot price
         spot_price = None
         
+        # Determine if we need to use the expired fetcher based on dynamic detection of last_expiry
+        try:
+            expiries = self.expired_fetcher.fetch_expiries(self.nifty_key)
+            if expiries:
+                last_expiry_str = str(expiries[-1])
+                last_expiry = datetime.strptime(last_expiry_str, '%Y-%m-%d')
+            else:
+                last_expiry = datetime.now() - timedelta(days=365)
+        except Exception as e:
+            print(f"Error detecting last_expiry for spot: {e}")
+            last_expiry = datetime.now() - timedelta(days=365)
+
+        target_dt = datetime.strptime(target_date_str, '%Y-%m-%d')
+        use_expired = target_dt <= last_expiry
+
         if target_time_str:
-             print(f"Fetching Nifty 50 Spot data (5min) for {target_date_str} to find price at {target_time_str}...")
-             spot_df_intra = self.fetcher._fetch_single(self.nifty_key, "minutes", 5, target_date_str, target_date_str)
+             if use_expired:
+                 print(f"Fetching Expired Nifty 50 Spot data (5min) for {target_date_str} at {target_time_str}...")
+                 spot_df_intra = self.expired_fetcher.fetch_candle_data(self.nifty_key, "5minute", target_date_str, target_date_str)
+             else:
+                 print(f"Fetching Nifty 50 Spot data (5min) for {target_date_str} to find price at {target_time_str}...")
+                 spot_df_intra = self.fetcher._fetch_single(self.nifty_key, "minutes", 5, target_date_str, target_date_str)
+             
              if spot_df_intra is not None and not spot_df_intra.empty:
                 target_full_dt = datetime.strptime(f"{target_date_str} {target_time_str}", "%Y-%m-%d %H:%M")
                 try:
@@ -342,15 +362,16 @@ class HistoricalStrategy(MarketDataStrategy):
         if spot_price is None:
             # Fallback to Daily
             today = datetime.now()
-            try:
-                target_dt = datetime.strptime(target_date_str, '%Y-%m-%d')
-            except:
-                target_dt = today
             days_diff = (today - target_dt).days + 5
             lookback = max(5, days_diff)
             
-            print(f"Fetching Nifty 50 Spot data (Daily) with lookback {lookback} days...")
-            spot_df_daily = self.fetcher.fetch(self.nifty_key, timeframe="days", lookback_days=lookback)
+            if use_expired:
+                print(f"Fetching Expired Nifty 50 Spot data (Daily) for {target_date_str}...")
+                from_date = (target_dt - timedelta(days=lookback)).strftime('%Y-%m-%d')
+                spot_df_daily = self.expired_fetcher.fetch_candle_data(self.nifty_key, "day", target_date_str, from_date)
+            else:
+                print(f"Fetching Nifty 50 Spot data (Daily) with lookback {lookback} days...")
+                spot_df_daily = self.fetcher.fetch(self.nifty_key, timeframe="days", lookback_days=lookback)
             
             if spot_df_daily is not None and not spot_df_daily.empty:
                 if target_date_str in spot_df_daily.index.strftime('%Y-%m-%d'):
@@ -371,6 +392,21 @@ class HistoricalStrategy(MarketDataStrategy):
         return instruments, expiry, is_expired
         
     def get_iv_spot_data(self, target_date_str):
+        # Determine if we need to use the expired fetcher
+        try:
+            expiries = self.expired_fetcher.fetch_expiries(self.nifty_key)
+            if expiries:
+                last_expiry_str = str(expiries[-1])
+                last_expiry = datetime.strptime(last_expiry_str, '%Y-%m-%d')
+            else:
+                last_expiry = datetime.now() - timedelta(days=365)
+        except:
+            last_expiry = datetime.now() - timedelta(days=365)
+
+        target_dt = datetime.strptime(target_date_str, '%Y-%m-%d')
+        if target_dt <= last_expiry:
+             return self.expired_fetcher.fetch_candle_data(self.nifty_key, "5minute", target_date_str, target_date_str)
+        
         return self.fetcher._fetch_single(self.nifty_key, "minutes", 5, target_date_str, target_date_str)
         
     def _format_expired_key(self, key, expiry_dt):
