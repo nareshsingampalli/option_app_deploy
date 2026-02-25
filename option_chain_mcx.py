@@ -231,7 +231,6 @@ class LiveStrategy(MarketDataStrategy):
                 
                 # Make target_full_dt timezone-aware if the index is aware
                 if df.index.tzinfo is not None:
-                    import pytz
                     ist = pytz.timezone('Asia/Kolkata')
                     target_full_dt = ist.localize(target_full_dt)
 
