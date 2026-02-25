@@ -210,11 +210,11 @@ class LiveStrategy(MarketDataStrategy):
         return self.fetcher.fetch(instrument['key'], "minutes", 5)
 
 class HistoricalStrategy(MarketDataStrategy):
+    """Strategy for fetching Historical MCX data (Active historicals)."""
     def __init__(self):
         self.fetcher = HistoricalCandleFetcher()
-        self.expired_fetcher = ExpiredCandleFetcher()
         self.spot_key = get_spot_key()
-        self.is_expired_mode = False
+        
     def get_spot_price(self, ds, ts):
         spot_price = None
         if ts:
@@ -229,53 +229,50 @@ class HistoricalStrategy(MarketDataStrategy):
                 if ds in df.index.strftime('%Y-%m-%d'): spot_price = df.loc[ds]['close']
                 else: spot_price = df['close'].iloc[-1]
         return spot_price
+
     def get_instruments(self, sp, ds):
-        instrs, exp, is_expired = get_option_chain_instruments(sp, num_strikes=5, reference_date=ds)
-        self.is_expired_mode = is_expired
-        return instrs, exp, is_expired
+        return get_option_chain_instruments(sp, num_strikes=5, reference_date=ds)
+
+    def get_candle_data(self, instrument, fd, td):
+        return self.fetcher._fetch_single(instrument['key'], "minutes", 5, td, fd)
+
+class ExpiredStrategy(MarketDataStrategy):
+    """Strategy for fetching data for recently Expired MCX contracts."""
+    def __init__(self):
+        self.fetcher = ExpiredCandleFetcher()
+        self.spot_key = get_spot_key()
+        
+    def get_spot_price(self, ds, ts):
+        spot_price = None
+        target_dt = datetime.strptime(ds, '%Y-%m-%d')
+        if ts:
+             print(f"Fetching Expired MCX Spot data (5min) for {ds} at {ts}...")
+             df = self.fetcher.fetch_candle_data(self.spot_key, "5minute", ds, ds)
+             if df is not None and not df.empty:
+                dt = datetime.strptime(f"{ds} {ts}", "%Y-%m-%d %H:%M")
+                try: spot_price = df.iloc[df.index.get_indexer([dt], method='nearest')[0]]['close']
+                except: pass
+        if spot_price is None:
+            print(f"Fetching Expired MCX Spot data (Daily) for {ds}...")
+            from_dt = (target_dt - timedelta(days=7)).strftime('%Y-%m-%d')
+            df = self.fetcher.fetch_candle_data(self.spot_key, "day", ds, from_dt)
+            if df is not None and not df.empty:
+                if ds in df.index.strftime('%Y-%m-%d'): spot_price = df.loc[ds]['close']
+                else: spot_price = df['close'].iloc[-1]
+        return spot_price
+
+    def get_instruments(self, sp, ds):
+        # Note: MCX expired instruments might need special handling if not in exchange json
+        return get_option_chain_instruments(sp, num_strikes=5, reference_date=ds)
+
     def _format_expired_key(self, key, expiry_dt):
-        """Convert standard key to expired format: EXCHANGE_TYPE|ID|DD-MM-YYYY"""
         if not key or not expiry_dt: return key
         if key.count('|') >= 2: return key
         return f"{key}|{expiry_dt.strftime('%d-%m-%Y')}"
 
     def get_candle_data(self, instrument, fd, td):
-        instr_key = instrument['key']
-        target_dt = datetime.strptime(td, '%Y-%m-%d')
-        now = datetime.now()
-        
-        last_expiry = None
-        try:
-            # We use the spot_key to get general expired expiries for the commodity
-            expired_dates_str = self.expired_fetcher.fetch_expiries(self.spot_key)
-            if expired_dates_str:
-                expired_dates = []
-                for d in expired_dates_str:
-                    try: expired_dates.append(datetime.strptime(str(d), '%Y-%m-%d'))
-                    except: pass
-                if expired_dates:
-                    last_expiry = max(expired_dates)
-                    print(f"  -> Detected Last Expiry (MCX): {last_expiry.date()}")
-        except Exception as e:
-            print(f"  -> Warning: Failed to detect last_expiry (MCX): {e}")
-
-        use_expired = False
-        if self.is_expired_mode: use_expired = True
-        elif last_expiry and target_dt <= last_expiry:
-            use_expired = True
-            print(f"  -> Target {td} <= Last Expiry {last_expiry.date()}. Switching to Expired API.")
-        else:
-            instr_expiry = instrument.get('expiry')
-            if instr_expiry and instr_expiry.date() < now.date() and target_dt <= instr_expiry:
-                use_expired = True
-                print(f"  -> Instrument expiry {instr_expiry.date()} in past. Switching to Expired API.")
-
-        if use_expired:
-            exp_key = self._format_expired_key(instr_key, instrument.get('expiry'))
-            print(f"  -> Fetching using Expired Key (MCX): {exp_key}")
-            return self.expired_fetcher.fetch_candle_data(exp_key, "5minute", td, fd)
-        else:
-            return self.fetcher._fetch_single(instr_key, "minutes", 5, td, fd)
+        exp_key = self._format_expired_key(instrument['key'], instrument.get('expiry'))
+        return self.fetcher.fetch_candle_data(exp_key, "5minute", td, fd)
 
 class OptionChainProcessor:
     def __init__(self, strategy: MarketDataStrategy):
@@ -311,7 +308,7 @@ class OptionChainProcessor:
         try:
             sp = self.strategy.get_spot_price(ds, ts)
             if not sp: return self.save_meta(None, ds, ts, None, False, error="No spot price")
-            instrs, exp, _ = self.strategy.get_instruments(sp, ds)
+            instrs, exp, is_expired = self.strategy.get_instruments(sp, ds)
             if not instrs: return self.save_meta(sp, ds, ts, None, False, error="No instruments")
             
             # Fetch spot data for IV mapping
@@ -328,27 +325,76 @@ class OptionChainProcessor:
                 for r in recs:
                     r['symbol'] = i['symbol']
                     data.append(r)
-            self.save_results(data, sp, ds, ts, exp)
+            self.save_results(data, sp, ds, ts, exp, is_expired)
         except Exception as e:
             print(f"Execution Error: {e}")
             self.save_meta(None, ds, ts, None, False, error=str(e))
 
-    def save_meta(self, sp, ds, ts, exp, has_data, error=None):
+    def save_meta(self, sp, ds, ts, exp, has_data, expired_contracts=False, error=None):
         suffix = f"_{ts.replace(':', '')}" if ts else ""
         meta_file = f"mcx_meta_{ds}{suffix}.json"
-        meta = {"spot_price": sp, "target_date": ds, "target_time": ts, "expiry_date": exp.strftime('%Y-%m-%d') if exp else None, "fetched_at": datetime.now().isoformat(), "has_data": has_data, "error": error}
+        meta = {
+            "spot_price": sp, 
+            "target_date": ds, 
+            "target_time": ts, 
+            "expiry_date": exp.strftime('%Y-%m-%d') if exp else None, 
+            "fetched_at": datetime.now().isoformat(), 
+            "has_data": has_data,
+            "expired_contracts": expired_contracts,
+            "error": error
+        }
         with open(meta_file, 'w') as f: json.dump(meta, f, indent=4)
 
-    def save_results(self, data, sp, ds, ts, exp):
+    def save_results(self, data, sp, ds, ts, exp, is_expired=False):
         suffix = f"_{ts.replace(':', '')}" if ts else ""
         if data:
             pd.DataFrame(data).to_csv(f"mcx_data_tabular_{ds}{suffix}.csv", index=False)
-            self.save_meta(sp, ds, ts, exp, True)
-        else: self.save_meta(sp, ds, ts, exp, False, error="No tabular data")
+            self.save_meta(sp, ds, ts, exp, True, expired_contracts=is_expired)
+        else:
+            is_expired_error = is_expired
+            if sp and not exp:
+                is_expired_error = True
+            self.save_meta(sp, ds, ts, exp, False, expired_contracts=is_expired_error, error="No tabular data")
 
 if __name__ == "__main__":
-    live_mode = "--live" in sys.argv
-    date_str = sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith("--") else datetime.now().strftime('%Y-%m-%d')
-    time_str = sys.argv[2] if len(sys.argv) > 2 and not sys.argv[2].startswith("--") else None
-    strategy = LiveStrategy() if (live_mode or date_str == datetime.now().strftime('%Y-%m-%d')) else HistoricalStrategy()
-    OptionChainProcessor(strategy).run(date_str, time_str)
+    live_mode = False
+    if "--live" in sys.argv:
+        live_mode = True
+        
+    # Check for date argument
+    today_str = datetime.now().strftime('%Y-%m-%d')
+    target_date_str = today_str
+    if len(sys.argv) > 1 and not sys.argv[1].startswith("--"):
+        target_date_str = sys.argv[1]
+        
+    # Check for time argument
+    target_time_str = None
+    if len(sys.argv) > 2 and not sys.argv[2].startswith("--"):
+        target_time_str = sys.argv[2]
+        
+    if live_mode or target_date_str == today_str:
+        print(f"Running in LIVE MODE for {target_date_str}")
+        strategy = LiveStrategy()
+    else:
+        # Determine if we need Historical or Expired strategy
+        target_dt = datetime.strptime(target_date_str, '%Y-%m-%d')
+        last_expiry = None
+        try:
+            # Quick check for last_expiry using a temporary fetcher
+            temp_fetcher = ExpiredCandleFetcher()
+            # Use get_spot_key() to get expiries for the default commodity (Crude Oil)
+            expiries = temp_fetcher.fetch_expiries(get_spot_key())
+            if expiries:
+                last_expiry = datetime.strptime(str(expiries[-1]), '%Y-%m-%d')
+        except:
+            pass
+            
+        if last_expiry and target_dt <= last_expiry:
+            print(f"Date {target_date_str} is Expired (Last Expiry: {last_expiry.date()}). Using ExpiredStrategy.")
+            strategy = ExpiredStrategy()
+        else:
+            print(f"Running in HISTORICAL MODE for {target_date_str}")
+            strategy = HistoricalStrategy()
+        
+    processor = OptionChainProcessor(strategy)
+    processor.run(target_date_str, target_time_str)

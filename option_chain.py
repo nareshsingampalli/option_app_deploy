@@ -315,18 +315,15 @@ class LiveStrategy(MarketDataStrategy):
         return self.fetcher.fetch(instrument_key, "minutes", 5)
 
 class HistoricalStrategy(MarketDataStrategy):
-    """Strategy for fetching Historical data (handles both Active and Expired historicals)."""
+    """Strategy for fetching Historical data (Active historicals after last_expiry)."""
     
     def __init__(self):
         self.fetcher = HistoricalCandleFetcher()
-        self.expired_fetcher = ExpiredCandleFetcher()
         self.nifty_key = get_nifty50_spot_key()
-        self.is_expired_mode = False # State to track if we switched to expired
         
     def get_spot_price(self, target_date_str, target_time_str):
         # Logic to fetch historical spot price
         spot_price = None
-        
         target_dt = datetime.strptime(target_date_str, '%Y-%m-%d')
 
         if target_time_str:
@@ -362,71 +359,77 @@ class HistoricalStrategy(MarketDataStrategy):
         return spot_price
         
     def get_instruments(self, spot_price, target_date_str):
+        # Standard instruments for non-expired historical
         instruments, expiry, is_expired = get_option_chain_instruments(spot_price, num_strikes=5, reference_date=target_date_str)
-        self.is_expired_mode = is_expired
-        if is_expired:
-            print("HistoricalStrategy: Switched to Expired Mode.")
         return instruments, expiry, is_expired
         
     def get_iv_spot_data(self, target_date_str):
         return self.fetcher._fetch_single(self.nifty_key, "minutes", 5, target_date_str, target_date_str)
         
+    def get_candle_data(self, instrument, from_date, to_date):
+        instr_key = instrument['key']
+        return self.fetcher._fetch_single(instr_key, "minutes", 5, to_date, from_date)
+
+class ExpiredStrategy(MarketDataStrategy):
+    """Strategy for fetching data for recently Expired contracts."""
+    
+    def __init__(self):
+        self.fetcher = ExpiredCandleFetcher()
+        self.nifty_key = get_nifty50_spot_key()
+        
+    def get_spot_price(self, target_date_str, target_time_str):
+        # Logic to fetch expired spot price
+        spot_price = None
+        target_dt = datetime.strptime(target_date_str, '%Y-%m-%d')
+
+        if target_time_str:
+             print(f"Fetching Expired Nifty 50 Spot data (5min) for {target_date_str} at {target_time_str}...")
+             spot_df_intra = self.fetcher.fetch_candle_data(self.nifty_key, "5minute", target_date_str, target_date_str)
+             
+             if spot_df_intra is not None and not spot_df_intra.empty:
+                target_full_dt = datetime.strptime(f"{target_date_str} {target_time_str}", "%Y-%m-%d %H:%M")
+                try:
+                    nearest_idx = spot_df_intra.index.get_indexer([target_full_dt], method='nearest')[0]
+                    spot_price = spot_df_intra.iloc[nearest_idx]['close']
+                    print(f"Found nearest spot candle at {spot_df_intra.index[nearest_idx]}: {spot_price}")
+                except:
+                    pass
+
+        if spot_price is None:
+            # Fallback to Daily from Expired API
+            print(f"Fetching Expired Nifty 50 Spot data (Daily) for {target_date_str}...")
+            # We fetch a small range around the target date
+            from_dt = (target_dt - timedelta(days=7)).strftime('%Y-%m-%d')
+            spot_df_daily = self.fetcher.fetch_candle_data(self.nifty_key, "day", target_date_str, from_dt)
+            
+            if spot_df_daily is not None and not spot_df_daily.empty:
+                if target_date_str in spot_df_daily.index.strftime('%Y-%m-%d'):
+                    spot_price = spot_df_daily.loc[target_date_str]['close']
+                    if isinstance(spot_price, pd.Series): spot_price = spot_price.iloc[0]
+                    print(f"Expired Nifty 50 Spot Close on {target_date_str}: {spot_price}")
+                else:
+                    spot_price = spot_df_daily['close'].iloc[-1]
+                    print(f"Using Latest Expired Spot Close: {spot_price}")
+                    
+        return spot_price
+        
+    def get_instruments(self, spot_price, target_date_str):
+        # Force fetch from expired instruments
+        instruments, expiry = get_expired_option_chain_instruments(spot_price, num_strikes=5, reference_date=target_date_str)
+        return instruments, expiry, True
+        
+    def get_iv_spot_data(self, target_date_str):
+        return self.fetcher.fetch_candle_data(self.nifty_key, "5minute", target_date_str, target_date_str)
+        
     def _format_expired_key(self, key, expiry_dt):
-        """Convert standard key to expired format: EXCHANGE_TYPE|ID|DD-MM-YYYY"""
         if not key or not expiry_dt: return key
-        # If already formatted (contains 2 pipes), return as is
         if key.count('|') >= 2: return key
         return f"{key}|{expiry_dt.strftime('%d-%m-%Y')}"
 
     def get_candle_data(self, instrument, from_date, to_date):
-        # Determine if we need to use the expired fetcher based on dynamic detection of last_expiry
-        symbol = instrument.get('symbol', 'Unknown')
         instr_key = instrument['key']
-        target_dt = datetime.strptime(to_date, '%Y-%m-%d')
-        now = datetime.now()
-        
-        last_expiry = None
-        try:
-            # We use the Nifty Index key to get the general list of expired dates
-            # (assuming standard expiries apply to all instruments in the chain)
-            print(f"  -> Detecting last_expiry for {symbol}...")
-            expired_dates_str = self.expired_fetcher.fetch_expiries(self.nifty_key)
-            if expired_dates_str:
-                expired_dates = []
-                for d in expired_dates_str:
-                    try:
-                        expired_dates.append(datetime.strptime(str(d), '%Y-%m-%d'))
-                    except:
-                        pass
-                if expired_dates:
-                    last_expiry = max(expired_dates)
-                    print(f"  -> Detected Last Expiry: {last_expiry.date()}")
-        except Exception as e:
-            print(f"  -> Warning: Failed to detect last_expiry: {e}")
-
-        use_expired_fetcher = False
-        
-        # Rule 1: Explicitly flagged by get_instruments
-        if self.is_expired_mode:
-            use_expired_fetcher = True
-        # Rule 2: Target Date is on or before Last Expiry (Expired Historical)
-        elif last_expiry and target_dt <= last_expiry:
-            use_expired_fetcher = True
-            print(f"  -> Target {to_date} <= Last Expiry {last_expiry.date()}. Switching to Expired API.")
-        # Rule 3: Safety check - if expiry is in past but not detected in list
-        else:
-            instr_expiry = instrument.get('expiry')
-            if instr_expiry and instr_expiry.date() < now.date() and target_dt <= instr_expiry:
-                use_expired_fetcher = True
-                print(f"  -> Instrument expiry {instr_expiry.date()} is in the past. Switching to Expired API.")
-
-        if use_expired_fetcher:
-            # Format key if needed
-            exp_key = self._format_expired_key(instr_key, instrument.get('expiry'))
-            print(f"  -> Fetching using Expired Key: {exp_key}")
-            return self.expired_fetcher.fetch_candle_data(exp_key, "5minute", to_date, from_date)
-        else:
-            return self.fetcher._fetch_single(instr_key, "minutes", 5, to_date, from_date)
+        exp_key = self._format_expired_key(instr_key, instrument.get('expiry'))
+        return self.fetcher.fetch_candle_data(exp_key, "5minute", to_date, from_date)
 
 class OptionChainProcessor:
     """Context class that executes the data processing workflow using a Strategy."""
@@ -514,7 +517,7 @@ class OptionChainProcessor:
                 return
 
             # 2. Get Instruments
-            instruments, target_expiry, _ = self.strategy.get_instruments(spot_price, target_date_str)
+            instruments, target_expiry, is_expired = self.strategy.get_instruments(spot_price, target_date_str)
             if not instruments:
                 print("No instruments found.")
                 # We still want to save meta if possible?
@@ -551,7 +554,7 @@ class OptionChainProcessor:
                     print("  -> No data found.")
             
             # 5. Save Data
-            self.save_results(tabular_data, spot_price, target_date_str, target_time_str, target_expiry)
+            self.save_results(tabular_data, spot_price, target_date_str, target_time_str, target_expiry, is_expired)
         except Exception as e:
             print(f"Execution failed: {e}")
             self.save_meta(None, target_date_str, target_time_str, None, False, error=str(e))
@@ -579,7 +582,7 @@ class OptionChainProcessor:
             json.dump(meta_data, f, indent=4)
         print(f"Metadata stored in {meta_file}")
 
-    def save_results(self, tabular_data, spot_price, target_date_str, target_time_str, target_expiry):
+    def save_results(self, tabular_data, spot_price, target_date_str, target_time_str, target_expiry, is_expired=False):
         if tabular_data:
             full_df = pd.DataFrame(tabular_data)
             full_df = full_df.sort_values(by=['date', 'symbol'])
@@ -593,11 +596,11 @@ class OptionChainProcessor:
             full_df.to_csv(csv_file, index=False)
             print(f"Tabular data stored in {csv_file}")
             
-            self.save_meta(spot_price, target_date_str, target_time_str, target_expiry, True)
+            self.save_meta(spot_price, target_date_str, target_time_str, target_expiry, True, expired_error=is_expired)
         else:
             print("No data available to save.")
             # Check if it was an expiry issue
-            is_expired_error = False
+            is_expired_error = is_expired
             if spot_price and not target_expiry:
                 is_expired_error = True
             self.save_meta(spot_price, target_date_str, target_time_str, target_expiry, False, is_expired_error)
@@ -609,7 +612,8 @@ def main():
         live_mode = True
         
     # Check for date argument
-    target_date_str = "2026-02-20"
+    today_str = datetime.now().strftime('%Y-%m-%d')
+    target_date_str = today_str
     if len(sys.argv) > 1 and not sys.argv[1].startswith("--"):
         target_date_str = sys.argv[1]
         
@@ -618,19 +622,28 @@ def main():
     if len(sys.argv) > 2 and not sys.argv[2].startswith("--"):
         target_time_str = sys.argv[2]
         
-    if live_mode:
-        print("Running in LIVE MODE")
-        target_date_str = datetime.now().strftime('%Y-%m-%d')
-        target_time_str = None
-        strategy = LiveStrategy()
-    elif target_date_str == datetime.now().strftime('%Y-%m-%d'):
-        print("Date is Today, switching to LIVE MODE (Intraday Data)...")
-        live_mode = True
-        target_time_str = None
+    if live_mode or target_date_str == today_str:
+        print(f"Running in LIVE MODE for {target_date_str}")
         strategy = LiveStrategy()
     else:
-        print(f"Running in HISTORICAL MODE. Date: {target_date_str}, Time: {target_time_str}")
-        strategy = HistoricalStrategy()
+        # Determine if we need Historical or Expired strategy
+        target_dt = datetime.strptime(target_date_str, '%Y-%m-%d')
+        last_expiry = None
+        try:
+            # Quick check for last_expiry using a temporary fetcher
+            temp_fetcher = ExpiredCandleFetcher()
+            expiries = temp_fetcher.fetch_expiries(get_nifty50_spot_key())
+            if expiries:
+                last_expiry = datetime.strptime(str(expiries[-1]), '%Y-%m-%d')
+        except:
+            pass
+            
+        if last_expiry and target_dt <= last_expiry:
+            print(f"Date {target_date_str} is Expired (Last Expiry: {last_expiry.date()}). Using ExpiredStrategy.")
+            strategy = ExpiredStrategy()
+        else:
+            print(f"Running in HISTORICAL MODE for {target_date_str}")
+            strategy = HistoricalStrategy()
         
     processor = OptionChainProcessor(strategy)
     processor.run(target_date_str, target_time_str)
