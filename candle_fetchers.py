@@ -92,7 +92,7 @@ class HistoricalCandleFetcher(BaseCandleFetcher):
             # Set a timeout for the API call (Linux/Unix only)
             if hasattr(signal, 'SIGALRM'):
                 signal.signal(signal.SIGALRM, timeout_handler)
-                signal.alarm(30) # 30 seconds timeout
+                signal.alarm(90) # 90 seconds timeout
                 
             response = self.history_api.get_historical_candle_data1(
                 instrument_key, unit, str(interval_num), to_date, from_date
