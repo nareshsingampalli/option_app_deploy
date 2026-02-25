@@ -254,10 +254,16 @@ def get_option_data():
             pass
 
     if needs_fetch:
-        lock = _fetch_locks.get(symbol_mode, threading.Lock())
-        acquired = lock.acquire(timeout=310)
+        # Avoid creating a new lock object on every miss; ensure it's stored
+        if symbol_mode not in _fetch_locks:
+            _fetch_locks[symbol_mode] = threading.Lock()
+        lock = _fetch_locks[symbol_mode]
+        
+        # Don't wait 5 minutes (310s) — if someone else is fetching, 
+        # just serve the current file or return quickly.
+        acquired = lock.acquire(blocking=False)
         if not acquired:
-            print(f"Lock timeout for {symbol_mode}, serving existing data if any.")
+            print(f"[API] Update already in progress for {symbol_mode}. Serving existing/stale data.")
         else:
             try:
                 # Re-check after lock: another tab may have already fetched
