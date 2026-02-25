@@ -135,6 +135,21 @@ def _symbol_scheduler(symbol, start_s, end_s, script):
             time.sleep(15)
 
 
+@app.route('/logs')
+def view_logs():
+    """View the last 20 lines of the app log."""
+    log_path = os.path.join(os.getcwd(), "app.log")
+    if not os.path.exists(log_path):
+        return "Log file not found.", 404
+    
+    try:
+        with open(log_path, 'r') as f:
+            lines = f.readlines()
+            last_20 = lines[-20:]
+            return "<pre>" + "".join(last_20) + "</pre>"
+    except Exception as e:
+        return f"Error reading logs: {e}", 500
+
 @app.route('/')
 def option_comparison():
     """Render the Option Chain Comparison Visualizer"""
