@@ -351,6 +351,9 @@ class OptionChainProcessor:
             spot_map = sm_df['close'].to_dict() if sm_df is not None else {}
             data = []
             for i in instrs:
+                # Burst protection: brief sleep between strikes to avoid 429
+                time.sleep(0.1)
+                
                 df = self.strategy.get_candle_data(i, ds, ds)
                 recs = self.process_data(df, spot_map, i)
                 for r in recs:

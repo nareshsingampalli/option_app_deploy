@@ -621,6 +621,9 @@ class OptionChainProcessor:
         for inst in instruments:
             print(f"Fetching candles for {inst['symbol']}...")
             try:
+                # Burst protection: brief sleep between strikes to avoid 429
+                time.sleep(0.1)
+                
                 # Candle range: from target date back 5 days to handle ROC on first session candles
                 to_date = target_date_str
                 from_date = (datetime.strptime(target_date_str, '%Y-%m-%d') - timedelta(days=5)).strftime('%Y-%m-%d')

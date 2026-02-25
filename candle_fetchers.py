@@ -56,33 +56,51 @@ class BaseCandleFetcher:
             print(f"[ERROR] Error processing API response: {e}")
             return None
 
+    def _execute_with_retry(self, func, *args, **kwargs):
+        """Executes an API function with retries on rate limiting (429)."""
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                return func(*args, **kwargs)
+            except ApiException as e:
+                if e.status == 429:
+                    wait_time = (attempt + 1) * 2 # Exponential backoff
+                    print(f"[RateLimit] Hit 429. Waiting {wait_time}s (Attempt {attempt+1}/{max_retries})...")
+                    time.sleep(wait_time)
+                    continue
+                raise e
+            except Exception as e:
+                # For requests-based calls (ExpiredCandleFetcher)
+                if hasattr(e, 'response') and getattr(e.response, 'status_code', None) == 429:
+                     wait_time = (attempt + 1) * 2
+                     time.sleep(wait_time)
+                     continue
+                raise e
+        return None
+
 class IntradayCandleFetcher(BaseCandleFetcher):
     """Fetches candle data for the current trading day."""
     def fetch(self, instrument_key, timeframe="minutes", interval_num=1):
         """
         Uses get_intra_day_candle_data for the present day.
-        timeframe: 'minutes', 'hours'
-        interval_num: 1, 3, 5, 15, 30, 60
         """
         unit = str(timeframe).lower()
         if unit == 'hour': unit = 'hours'
         if unit == 'minute': unit = 'minutes'
-        
-        # Map hours -> minutes for intraday API
         if unit == 'hours':
             unit = 'minutes'
             interval_num = int(interval_num) * 60
-        
         if not unit.endswith('s'):
             unit += 's'
         
         try:
-            response = self.history_api.get_intra_day_candle_data(
+            response = self._execute_with_retry(
+                self.history_api.get_intra_day_candle_data,
                 instrument_key, unit, str(interval_num)
             )
             return self._process_response(response)
-        except ApiException as e:
-            print(f"[ERROR] ApiException in IntradayCandleFetcher: {e}")
+        except Exception as e:
+            print(f"[ERROR] Intraday fetch failed: {e}")
             return None
 
 class HistoricalCandleFetcher(BaseCandleFetcher):
@@ -91,35 +109,23 @@ class HistoricalCandleFetcher(BaseCandleFetcher):
     def _fetch_single(self, instrument_key, unit, interval_num, to_date, from_date):
         """Internal method to fetch a single chunk of data."""
         try:
-            # Set a timeout for the API call (Linux/Unix only)
             if hasattr(signal, 'SIGALRM'):
                 signal.signal(signal.SIGALRM, timeout_handler)
-                signal.alarm(90) # 90 seconds timeout
+                signal.alarm(90)
                 
-            response = self.history_api.get_historical_candle_data1(
+            response = self._execute_with_retry(
+                self.history_api.get_historical_candle_data1,
                 instrument_key, unit, str(interval_num), to_date, from_date
             )
             
-            # Disable alarm if successful
             if hasattr(signal, 'SIGALRM'):
                 signal.alarm(0)
                 
             return self._process_response(response)
-            
-        except TimeoutError:
-            print(f"[ERROR] API Request timed out for {instrument_key}")
-            return None
-        except ApiException as e:
-            # Ensure alarm is disabled
-            if hasattr(signal, 'SIGALRM'):
-                signal.alarm(0)
-            print(f"[ERROR] ApiException in HistoricalCandleFetcher: {e}")
-            return None
         except Exception as e:
-            # Ensure alarm is disabled
             if hasattr(signal, 'SIGALRM'):
                 signal.alarm(0)
-            print(f"[ERROR] Exception in HistoricalCandleFetcher: {e}")
+            print(f"[ERROR] Historical fetch failed: {e}")
             return None
 
     def fetch(self, instrument_key, timeframe="days", interval_num=1, lookback_days=90):
@@ -199,20 +205,33 @@ class ExpiredCandleFetcher(BaseCandleFetcher):
     def fetch_contracts(self, underlying_key, expiry_date):
         """Fetch expired option contracts for a given underlying and expiry date."""
         try:
-            # Safely encode the pipe character and spaces, ex: NSE_INDEX|Nifty 50 -> NSE_INDEX%7CNifty%2050
             safe_key = urllib.parse.quote(underlying_key)
             url = f"https://api.upstox.com/v2/expired-instruments/option/contract?instrument_key={safe_key}&expiry_date={expiry_date}"
             
-            response = requests.get(url, headers=self.headers, timeout=15)
-            if response.status_code == 200:
-                data = response.json()
-                return data.get('data', [])
-            else:
-                print(f"[ERROR] fetch_contracts: {response.status_code} - {response.text}")
-                return []
+            response = self._execute_with_retried_get(url)
+            if response and response.status_code == 200:
+                return response.json().get('data', [])
+            return []
         except Exception as e:
             print(f"[ERROR] fetch_contracts Exception: {e}")
             return []
+
+    def _execute_with_retried_get(self, url):
+        """Helper for requests.get with 429 retries."""
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                resp = requests.get(url, headers=self.headers, timeout=15)
+                if resp.status_code == 429:
+                    wait_time = (attempt + 1) * 2
+                    print(f"[RateLimit] Hit 429 (REST). Waiting {wait_time}s...")
+                    time.sleep(wait_time)
+                    continue
+                return resp
+            except Exception as e:
+                if attempt == max_retries - 1: raise e
+                time.sleep(1)
+        return None
 
     def fetch_expiries(self, underlying_key):
         """Fetch available expiries for an underlying index/instrument."""
@@ -220,34 +239,24 @@ class ExpiredCandleFetcher(BaseCandleFetcher):
             safe_key = urllib.parse.quote(underlying_key)
             url = f"https://api.upstox.com/v2/expired-instruments/expiries?instrument_key={safe_key}"
             
-            response = requests.get(url, headers=self.headers, timeout=15)
-            if response.status_code == 200:
-                data = response.json()
-                return data.get('data', [])
-            else:
-                print(f"[ERROR] fetch_expiries: {response.status_code} - {response.text}")
-                return []
+            response = self._execute_with_retried_get(url)
+            if response and response.status_code == 200:
+                return response.json().get('data', [])
+            return []
         except Exception as e:
             print(f"[ERROR] fetch_expiries Exception: {e}")
             return []
 
     def fetch_candle_data(self, instrument_key, interval_str, to_date, from_date):
-        """
-        Fetch historical candle data for an expired instrument.
-        interval_str expects values like '1minute', '5minute', etc.
-        """
+        """Fetch historical candle data for an expired instrument."""
         try:
-            # Encode instrument_key, ex: NSE_FO|64844|24-02-2026 -> NSE_FO%7C64844%7C24-02-2026
             safe_key = urllib.parse.quote(instrument_key)
             url = f"https://api.upstox.com/v2/expired-instruments/historical-candle/{safe_key}/{interval_str}/{to_date}/{from_date}"
             
-            response = requests.get(url, headers=self.headers, timeout=15)
-            if response.status_code == 200:
-                # Reuse the base class parser which safely extracts the 'candles' array into Pandas
+            response = self._execute_with_retried_get(url)
+            if response and response.status_code == 200:
                 return self._process_response(response.json())
-            else:
-                print(f"[ERROR] fetch_candle_data: {response.status_code} - {response.text}")
-                return None
+            return None
         except Exception as e:
             print(f"[ERROR] fetch_candle_data Exception: {e}")
             return None
