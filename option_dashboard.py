@@ -101,9 +101,18 @@ def _symbol_scheduler(symbol, start_s, end_s, script):
             time.sleep(max(1, wait))
 
         else:
-            # In market hours — check for minute % 5 == 1 logic
-            if now.minute % 5 == 1 and now.minute != last_fetch_min:
-                print(f"[Scheduler-{symbol}] Triggering fetch at {now.strftime('%H:%M')}")
+            # In market hours
+            # ── 1. Startup period (09:16 - 09:20): fetch every minute ────────
+            #    Market starts at 09:15. We wait until 09:16 for the first 1-min candle.
+            is_startup = (now.hour == 9 and 16 <= now.minute <= 20)
+            
+            # ── 2. Normal period: fetch every 5 mins at minute % 5 == 1 ─────
+            #    e.g. 09:16, 09:21, 09:26, etc.
+            is_regular_cycle = (now.minute % 5 == 1)
+
+            if (is_startup or is_regular_cycle) and now.minute != last_fetch_min:
+                mode_label = "Startup (1min)" if is_startup else "Regular (5min)"
+                print(f"[Scheduler-{symbol}] Triggering {mode_label} fetch at {now.strftime('%H:%M')}")
                 _run_fetch(symbol, script)
                 last_fetch_min = now.minute
             
@@ -184,11 +193,20 @@ def get_option_data():
     is_today = date_str == datetime.now().strftime('%Y-%m-%d')
     needs_fetch = False
     
-    # Only fetch via API if the file doesn't exist AND it's not a live mode request
-    # Live mode / Today's data is exclusively managed by the background scheduler.
-    if not os.path.exists(csv_path):
-        if not (is_today and not time_str):
+    # Check if the file exists and how fresh it is
+    file_exists = os.path.exists(csv_path)
+    file_age_s = time.time() - os.path.getmtime(csv_path) if file_exists else 999999
+    
+    if not file_exists:
+        needs_fetch = True
+    elif live_mode or is_today:
+        # For today/live data, if it's older than 2 minutes, refresh it on-demand
+        if file_age_s > 120:
             needs_fetch = True
+    
+    # If it's a specific past date (not today), and file exists, we don't need to re-fetch.
+    if not needs_fetch:
+         print(f"[API] Serving existing file: {filename} (Age: {int(file_age_s)}s)")
 
     # Check if we should skip fetch due to existing auth error in metadata
     meta_path = os.path.join(os.getcwd(), meta_filename)

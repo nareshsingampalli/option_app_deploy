@@ -470,15 +470,26 @@
             }
         });
 
-        // Default to today so the time slider works for today's intraday data
-        const todayStr = new Date().toISOString().split('T')[0];
-        datePicker.max = todayStr;
-        datePicker.value = todayStr;
+        // Date picker: max is YESTERDAY — today is reserved for Live mode only.
+        const _today = new Date();
+        const _yesterday = new Date(_today);
+        _yesterday.setDate(_today.getDate() - 1);
+        const todayStr = _today.toISOString().split('T')[0];
+        const yesterdayStr = _yesterday.toISOString().split('T')[0];
+
+        datePicker.max = yesterdayStr;   // Today is NOT selectable
+        datePicker.value = yesterdayStr;   // Default to most recent past day
 
         datePicker.addEventListener('change', () => {
+            // Guard: reject today (handle manual entry/paste)
+            if (datePicker.value >= todayStr) {
+                alert("Today's date is not available in historical/expired mode.\nPlease use the Live toggle for today's data.");
+                datePicker.value = yesterdayStr;
+                return;
+            }
             checkAutoRefresh();
             if (!isLiveMode) {
-                debouncedFetch(5000); // Wait 5s on date change
+                debouncedFetch(5000);
             }
         });
 
@@ -611,8 +622,8 @@
         }
 
         // Fetch data on load
-        const today = new Date().toISOString().split('T')[0];
-        if (!datePicker.value) datePicker.value = today;
+        // datePicker.value is already set to yesterdayStr above — no need to re-compute
+        if (!datePicker.value) datePicker.value = yesterdayStr;
         fetchData();
         document.getElementById('loading').style.display = 'none'; // Hide loading initially
 
@@ -644,8 +655,13 @@
             }
 
             let url = `/api/option-data?date=${date}&symbol=${currentMode}`;
-            if (time) url += `&time=${time}`;
-            if (isLiveMode) url += `&live=true`;
+            // In non-live (historical/expired) mode, ALWAYS send the time from the slider.
+            // sliderToTime() always returns a valid HH:MM string, so no need to guard.
+            if (isLiveMode) {
+                url += `&live=true`;
+            } else {
+                url += `&time=${time}`;   // always include time for historical/expired
+            }
 
             fetch(url)
                 .then(response => {

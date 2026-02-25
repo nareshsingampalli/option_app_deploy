@@ -12,15 +12,21 @@ import time
 import sys
 from abc import ABC, abstractmethod
 from dotenv import load_dotenv
-from candle_fetchers import HistoricalCandleFetcher, ExpiredCandleFetcher, IntradayCandleFetcher
+from candle_fetchers import HistoricalCandleFetcher, IntradayCandleFetcher
 
 # Load environment variables
 load_dotenv()
 load_dotenv("/home/ubuntu/refactor_app/.env")
 
-def get_spot_key():
-    """Get the instrument key for Crude Oil Future (March 26)."""
-    return "MCX_FO|472789"
+def get_spot_key(symbol='CRUDEOIL'):
+    """
+    Get the instrument key for the nearest MCX Future for the given symbol.
+    """
+    KEYS = {
+        'CRUDEOIL': 'MCX_FO|472789',
+        'NATURALGAS': 'MCX_FO|472795'
+    }
+    return KEYS.get(symbol.upper(), KEYS['CRUDEOIL'])
 
 def black_scholes_call(S, K, T, r, sigma):
     try:
@@ -200,14 +206,45 @@ class MarketDataStrategy(ABC):
     def get_candle_data(self, instrument, from_date, to_date): pass
 
 class LiveStrategy(MarketDataStrategy):
-    def __init__(self):
+    """Strategy for fetching today's MCX data (Intraday API)."""
+    def __init__(self, symbol='CRUDEOIL'):
+        self.symbol = symbol
         self.fetcher = IntradayCandleFetcher()
-        self.spot_key = get_spot_key()
-    def get_spot_price(self, ds, ts):
+        self.spot_key = get_spot_key(self.symbol)
+        
+    def get_spot_price(self, target_date_str, target_time_str):
+        print(f"[LiveMCX] Fetching intraday spot (time_ref={target_time_str or 'latest'})...")
         df = self.fetcher.fetch(self.spot_key, "minutes", 5)
         if df is None or df.empty:
             df = self.fetcher.fetch(self.spot_key, "minutes", 1)
-        return df['close'].iloc[-1] if df is not None and not df.empty else None
+            
+        if df is None or df.empty:
+            print(f"[LiveMCX] CRITICAL: No intraday data for {self.spot_key}")
+            return None
+            
+        if target_time_str:
+            # Find price at the nearest candle to the requested time
+            try:
+                # Use candle index to determine date correctly
+                ref_date = df.index[0].date().strftime('%Y-%m-%d')
+                target_full_dt = datetime.strptime(f"{ref_date} {target_time_str}", "%Y-%m-%d %H:%M")
+                
+                # Make target_full_dt timezone-aware if the index is aware
+                if df.index.tzinfo is not None:
+                    import pytz
+                    ist = pytz.timezone('Asia/Kolkata')
+                    target_full_dt = ist.localize(target_full_dt)
+
+                nearest_idx = df.index.get_indexer([target_full_dt], method='nearest')[0]
+                price = float(df.iloc[nearest_idx]['close'])
+                print(f"[LiveMCX] ATM price at {df.index[nearest_idx]}: {price}")
+                return price
+            except Exception as e:
+                print(f"[LiveMCX] Time lookup error: {e}, falling back to latest.")
+
+        price = float(df['close'].iloc[-1])
+        print(f"[LiveMCX] Latest spot price: {price}")
+        return price
     def get_instruments(self, sp, ds):
         return get_option_chain_instruments(sp, num_strikes=3, reference_date=ds)
     def get_candle_data(self, instrument, fd, td):
@@ -223,9 +260,10 @@ class LiveStrategy(MarketDataStrategy):
 
 class HistoricalStrategy(MarketDataStrategy):
     """Strategy for fetching Historical MCX data (Active historicals)."""
-    def __init__(self):
+    def __init__(self, symbol='CRUDEOIL'):
+        self.symbol = symbol
         self.fetcher = HistoricalCandleFetcher()
-        self.spot_key = get_spot_key()
+        self.spot_key = get_spot_key(self.symbol)
         
     def get_spot_price(self, ds, ts):
         spot_price = None
@@ -262,54 +300,6 @@ class HistoricalStrategy(MarketDataStrategy):
     def get_iv_spot_data(self, ds):
         return self.fetcher._fetch_single(self.spot_key, "minutes", 5, ds, ds)
 
-class ExpiredStrategy(MarketDataStrategy):
-    """Strategy for fetching data for recently Expired MCX contracts."""
-    def __init__(self):
-        self.fetcher = ExpiredCandleFetcher()
-        self.spot_key = get_spot_key()
-        
-    def get_spot_price(self, ds, ts):
-        spot_price = None
-        target_dt = datetime.strptime(ds, '%Y-%m-%d')
-        if ts:
-             print(f"Fetching Expired MCX Spot data (5min) for {ds} at {ts}...")
-             df = self.fetcher.fetch_candle_data(self.spot_key, "5minute", ds, ds)
-             if df is not None and not df.empty:
-                dt = datetime.strptime(f"{ds} {ts}", "%Y-%m-%d %H:%M")
-                try: spot_price = df.iloc[df.index.get_indexer([dt], method='nearest')[0]]['close']
-                except: pass
-        if spot_price is None:
-            print(f"Fetching Expired MCX Spot data (Daily) for {ds}...")
-            from_dt = (target_dt - timedelta(days=10)).strftime('%Y-%m-%d')
-            df = self.fetcher.fetch_candle_data(self.spot_key, "day", ds, from_dt)
-            if df is not None and not df.empty:
-                available_dates = df.index.strftime('%Y-%m-%d')
-                if ds in available_dates:
-                    spot_price = df.loc[ds]['close']
-                else:
-                    # Find nearest previous Close
-                    target_dt_aware = target_dt
-                    if df.index.tzinfo is not None:
-                         target_dt_aware = target_dt.replace(tzinfo=df.index.tzinfo)
-
-                    past_data = df[df.index <= target_dt_aware]
-                    if not past_data.empty:
-                        spot_price = past_data['close'].iloc[-1]
-        return spot_price
-
-    def get_instruments(self, sp, ds):
-        return get_option_chain_instruments(sp, num_strikes=3, reference_date=ds)
-
-    def _format_expired_key(self, key, expiry_dt):
-        if not key or not expiry_dt: return key
-        if key.count('|') >= 2: return key
-        return f"{key}|{expiry_dt.strftime('%d-%m-%Y')}"
-
-    def get_candle_data(self, instrument, fd, td):
-        exp_key = self._format_expired_key(instrument['key'], instrument.get('expiry'))
-        return self.fetcher.fetch_candle_data(exp_key, "5minute", td, fd)
-    def get_iv_spot_data(self, ds):
-        return self.fetcher.fetch_candle_data(self.spot_key, "5minute", ds, ds)
 
 class OptionChainProcessor:
     def __init__(self, strategy: MarketDataStrategy):
@@ -345,9 +335,9 @@ class OptionChainProcessor:
     def run(self, ds, ts=None):
         try:
             sp = self.strategy.get_spot_price(ds, ts)
-            if not sp: return self.save_meta(None, ds, ts, None, False, error="No spot price")
+            if not sp: return self.save_meta(None, ds, ts, None, False, error="Data not available for selected date")
             instrs, exp, is_expired = self.strategy.get_instruments(sp, ds)
-            if not instrs: return self.save_meta(sp, ds, ts, None, False, error="No instruments")
+            if not instrs: return self.save_meta(sp, ds, ts, None, False, error="Data not available for selected date")
             
             # Fetch spot data for IV mapping
             sm_df = self.strategy.get_iv_spot_data(ds)
@@ -363,7 +353,7 @@ class OptionChainProcessor:
             self.save_results(data, sp, ds, ts, exp, is_expired)
         except Exception as e:
             print(f"Execution Error: {e}")
-            self.save_meta(None, ds, ts, None, False, error=str(e))
+            self.save_meta(None, ds, ts, None, False, error="Data not available for selected date")
 
     def save_meta(self, sp, ds, ts, exp, has_data, expired_contracts=False, error=None):
         suffix = f"_{ts.replace(':', '')}" if ts else ""
@@ -395,7 +385,7 @@ class OptionChainProcessor:
             is_expired_error = is_expired
             if sp and not exp:
                 is_expired_error = True
-            self.save_meta(sp, ds, ts, exp, False, expired_contracts=is_expired_error, error="No tabular data")
+            self.save_meta(sp, ds, ts, exp, False, expired_contracts=is_expired_error, error="Data not available for selected date")
 
 if __name__ == "__main__":
     live_mode = False
@@ -413,32 +403,18 @@ if __name__ == "__main__":
     if len(sys.argv) > 2 and not sys.argv[2].startswith("--"):
         target_time_str = sys.argv[2]
         
-    if live_mode or (target_date_str == today_str and not target_time_str):
-        print(f"Running in LIVE MODE for {target_date_str}")
+    if live_mode:
+        print(f"Running in TODAY/LIVE MODE for {target_date_str}")
         strategy = LiveStrategy()
     else:
-        # Determine if we need Historical or Expired strategy
-        target_dt = datetime.strptime(target_date_str, '%Y-%m-%d')
-        last_expiry = None
-        try:
-            # Quick check for last_expiry using a temporary fetcher
-            temp_fetcher = ExpiredCandleFetcher()
-            # Use get_spot_key() to get expiries for the default commodity (Crude Oil)
-            expiries = temp_fetcher.fetch_expiries(get_spot_key())
-            if expiries:
-                last_expiry = datetime.strptime(str(expiries[-1]), '%Y-%m-%d')
-        except:
-            pass
-            
-        if last_expiry and target_dt <= last_expiry:
-            print(f"Date {target_date_str} is Expired (Last Expiry: {last_expiry.date()}). Using ExpiredStrategy.")
-            strategy = ExpiredStrategy()
-        else:
-            if target_date_str == today_str:
-                print(f"Running in TIME-BASED INTRADAY MODE for {target_date_str} at {target_time_str}")
-            else:
-                print(f"Running in HISTORICAL MODE for {target_date_str}")
-            strategy = HistoricalStrategy()
+        # Guard: today's date without live mode (reserved for Live toggle)
+        if target_date_str == today_str:
+            print(f"[MCX] BLOCKED: {target_date_str} is today but --live flag is missing.")
+            # We don't run the processor at all to avoid creating files for a blocked request
+            sys.exit(0)
+
+        print(f"Running in HISTORICAL MODE for {target_date_str}")
+        strategy = HistoricalStrategy()
         
     processor = OptionChainProcessor(strategy)
     processor.run(target_date_str, target_time_str)
