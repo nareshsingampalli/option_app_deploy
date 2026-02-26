@@ -477,14 +477,14 @@
         const todayStr = _today.toISOString().split('T')[0];
         const yesterdayStr = _yesterday.toISOString().split('T')[0];
 
-        datePicker.max = todayStr;   // Allow today for snapshots
-        datePicker.value = todayStr; // Default to today
+        datePicker.max = yesterdayStr;   // Today is NOT selectable
+        datePicker.value = yesterdayStr;   // Default to most recent past day
 
         datePicker.addEventListener('change', () => {
-            // Guard: reject FUTURE dates (handle manual entry/paste)
-            if (datePicker.value > todayStr) {
-                alert("Future dates are not available.");
-                datePicker.value = todayStr;
+            // Guard: reject today (handle manual entry/paste)
+            if (datePicker.value >= todayStr) {
+                alert("Today's date is not available in historical/expired mode.\nPlease use the Live toggle for today's data.");
+                datePicker.value = yesterdayStr;
                 return;
             }
             if (!isLiveMode) {
@@ -545,11 +545,17 @@
             } else {
                 isLiveMode = false;
                 datePicker.disabled = false;
-                // STAYS on the current date, but shifts to Snapshot mode
+
+                // Reset to Yesterday when going OFF to avoid hitting the Today guard
+                const _now = new Date();
+                const yesterdayLocal = new Date(_now.getTime() - (_now.getTimezoneOffset() * 60000));
+                yesterdayLocal.setDate(yesterdayLocal.getDate() - 1);
+                const yesterdayStr = yesterdayLocal.toISOString().split('T')[0];
+                datePicker.value = yesterdayStr;
 
                 stopWebSocket(); // Disconnect WebSocket
                 stopAutoRefresh();
-                debouncedFetch(100); // Reload data for the date currently in the picker
+                debouncedFetch(100); // Reload data for yesterday
             }
         }
 

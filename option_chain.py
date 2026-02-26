@@ -738,12 +738,12 @@ def _detect_strategy(target_date_str: str,
         print(f"[StrategyDetect] Zone 1 -> LIVE  (live_flag=True, date={target_date_str})")
         return LiveStrategy()
 
-    # ── Guard: today's date without live mode (unless a time slice is specified) ──
-    #   Today is generally reserved for Live mode, but we allow historical 
-    #   time-slice requests (e.g. looking at a snapshot of today).
-    if target_date_str == today_str and not target_time_str:
-        print(f"[StrategyDetect] BLOCKED: {target_date_str} is today but no time provided. "
-              f"Use --live flag or the Live toggle for today's data.")
+    # ── Guard: today's date without live mode ────────────────────────────────
+    #   Today's date is reserved strictly for Live mode. If the --live flag is
+    #   missing, any request for today's date will be blocked.
+    if target_date_str == today_str:
+        print(f"[StrategyDetect] BLOCKED: {target_date_str} is today but --live flag is missing. "
+              f"Use the Live toggle for today's data.")
         # Return HistoricalStrategy as a safe fallback that will find no data
         return HistoricalStrategy()
 

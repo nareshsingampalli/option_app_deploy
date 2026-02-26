@@ -430,9 +430,9 @@ if __name__ == "__main__":
         print(f"Running in TODAY/LIVE MODE for {target_date_str}")
         strategy = LiveStrategy()
     else:
-        # Guard: today's date without live mode (unless a time slice is specified)
-        if target_date_str == today_str and not target_time_str:
-            print(f"[MCX] BLOCKED: {target_date_str} is today but --live flag or time is missing.")
+        # Guard: today's date without live mode (reserved for Live toggle)
+        if target_date_str == today_str:
+            print(f"[MCX] BLOCKED: {target_date_str} is today but --live flag is missing.")
             sys.exit(0)
 
         print(f"Running in HISTORICAL MODE for {target_date_str}")
