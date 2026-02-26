@@ -381,19 +381,25 @@
         function formatSymbol(sym) {
             if (!sym) return '';
 
-            // NSE Pattern: NIFTY2630225350CE
+            // NSE Pattern: NIFTY2630225350CE -> NIFTY 25350 CE
             if (sym.includes('NIFTY')) {
                 const typeMatch = sym.match(/(CE|PE)$/);
                 if (!typeMatch) return sym;
                 const typeStr = typeMatch[1];
-                const rest = sym.slice(0, -2);
-                const strikeMatch = rest.match(/(\d+)$/);
-                if (strikeMatch) {
-                    return `${strikeMatch[1]} ${typeStr}`;
+
+                // Get the numeric part between NIFTY and CE/PE
+                const numMatch = sym.match(/NIFTY(\d+)(?:CE|PE)$/);
+                if (numMatch) {
+                    const fullNum = numMatch[1];
+                    // Skip the first 5 digits (YYMDD) to get the strike
+                    if (fullNum.length > 5) {
+                        const strike = fullNum.substring(5);
+                        return `NIFTY ${strike} ${typeStr}`;
+                    }
                 }
             }
 
-            // MCX Pattern: CRUDEOIL 5850 CE 17 MAR 26
+            // MCX Pattern: CRUDEOIL 5850 CE 17 MAR 26 -> 5850 CE
             if (sym.includes('CRUDEOIL')) {
                 const parts = sym.split(' ');
                 if (parts.length >= 3) {
