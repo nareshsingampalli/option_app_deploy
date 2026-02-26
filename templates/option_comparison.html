@@ -375,7 +375,7 @@
             document.getElementById('time-display').textContent = sliderToTime(0);
 
             // Use debounced fetch for mode switches too
-            debouncedFetch(isLiveMode ? 100 : 5000);
+            debouncedFetch(500);
         }
 
         async function refreshToken() {
@@ -477,19 +477,18 @@
         const todayStr = _today.toISOString().split('T')[0];
         const yesterdayStr = _yesterday.toISOString().split('T')[0];
 
-        datePicker.max = yesterdayStr;   // Today is NOT selectable
-        datePicker.value = yesterdayStr;   // Default to most recent past day
+        datePicker.max = todayStr;   // Allow today for snapshots
+        datePicker.value = todayStr; // Default to today
 
         datePicker.addEventListener('change', () => {
-            // Guard: reject today (handle manual entry/paste)
-            if (datePicker.value >= todayStr) {
-                alert("Today's date is not available in historical/expired mode.\nPlease use the Live toggle for today's data.");
-                datePicker.value = yesterdayStr;
+            // Guard: reject FUTURE dates (handle manual entry/paste)
+            if (datePicker.value > todayStr) {
+                alert("Future dates are not available.");
+                datePicker.value = todayStr;
                 return;
             }
-            checkAutoRefresh();
             if (!isLiveMode) {
-                debouncedFetch(5000);
+                debouncedFetch(100); // Trigger fetch for selected date
             }
         });
 
@@ -546,18 +545,11 @@
             } else {
                 isLiveMode = false;
                 datePicker.disabled = false;
-
-                // Reset to Yesterday when going OFF to avoid hitting the Today guard
-                const _now = new Date();
-                const yesterdayLocal = new Date(_now.getTime() - (_now.getTimezoneOffset() * 60000));
-                yesterdayLocal.setDate(yesterdayLocal.getDate() - 1);
-                const yesterdayStr = yesterdayLocal.toISOString().split('T')[0];
-                datePicker.value = yesterdayStr;
+                // STAYS on the current date, but shifts to Snapshot mode
 
                 stopWebSocket(); // Disconnect WebSocket
                 stopAutoRefresh();
-                checkAutoRefresh();
-                debouncedFetch(100); // Reload data for yesterday
+                debouncedFetch(100); // Reload data for the date currently in the picker
             }
         }
 
