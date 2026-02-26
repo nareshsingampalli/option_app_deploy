@@ -527,7 +527,7 @@ class OptionChainProcessor:
     def __init__(self, strategy: MarketDataStrategy):
         self.strategy = strategy
         
-    def process_data(self, df, spot_map, instr):
+    def process_data(self, df, spot_map, instr, filter_date=None):
         """Process raw candle data to add indicators (IV, ROC, etc)."""
         if df is None or df.empty:
             return []
@@ -592,6 +592,10 @@ class OptionChainProcessor:
             (final_df['date'].dt.time <= datetime.strptime("15:15", "%H:%M").time())
         ]
         
+        # If a specific date was requested, filter to that date ONLY to avoid slanted lines across multiple days
+        if filter_date:
+            final_df = final_df[final_df['date'].dt.strftime('%Y-%m-%d') == filter_date]
+        
         final_df['date'] = final_df['date'].astype(str)
         return final_df.to_dict(orient='records')
 
@@ -627,7 +631,7 @@ class OptionChainProcessor:
                 
                 df_candles = self.strategy.get_candle_data(inst, from_date, to_date)
                 if df_candles is not None and not df_candles.empty:
-                    processed = self.process_data(df_candles, spot_map, inst)
+                    processed = self.process_data(df_candles, spot_map, inst, filter_date=target_date_str)
                     for row in processed:
                         row['symbol'] = inst['symbol']
                         results.append(row)
