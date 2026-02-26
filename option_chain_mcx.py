@@ -356,11 +356,8 @@ class OptionChainProcessor:
             spot_map = sm_df['close'].to_dict() if sm_df is not None else {}
             data = []
             for i in instrs:
-                # Candle range: fetch 5 days back to handle ROC/indicators on first session candles accurately
-                target_dt = datetime.strptime(ds, '%Y-%m-%d')
-                from_date = (target_dt - timedelta(days=5)).strftime('%Y-%m-%d')
-                
-                df = self.strategy.get_candle_data(i, from_date, ds)
+                # Candle range: fetch ONLY for the target date as requested (initially show zero for indicators)
+                df = self.strategy.get_candle_data(i, ds, ds)
                 recs = self.process_data(df, spot_map, i, filter_date=ds)
                 for r in recs:
                     r['symbol'] = i['symbol']
