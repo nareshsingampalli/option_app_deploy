@@ -627,7 +627,7 @@ class OptionChainProcessor:
             try:
                 # Candle range: from target date back 5 days to handle ROC on first session candles
                 to_date = target_date_str
-                from_date = (datetime.strptime(target_date_str, '%Y-%m-%d') - timedelta(days=5)).strftime('%Y-%m-%d')
+                from_date = target_date_str
                 
                 df_candles = self.strategy.get_candle_data(inst, from_date, to_date)
                 if df_candles is not None and not df_candles.empty:
