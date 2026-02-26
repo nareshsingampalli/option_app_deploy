@@ -477,18 +477,30 @@
         const todayStr = _today.toISOString().split('T')[0];
         const yesterdayStr = _yesterday.toISOString().split('T')[0];
 
-        datePicker.max = yesterdayStr;   // Today is NOT selectable
-        datePicker.value = yesterdayStr;   // Default to most recent past day
+        datePicker.max = todayStr;   // Allow today for auto-live redirection
+        datePicker.value = yesterdayStr; // Default to yesterday as usual
 
         datePicker.addEventListener('change', () => {
-            // Guard: reject today (handle manual entry/paste)
-            if (datePicker.value >= todayStr) {
-                alert("Today's date is not available in historical/expired mode.\nPlease use the Live toggle for today's data.");
+            // Guard: reject FUTURE dates
+            if (datePicker.value > todayStr) {
+                alert("Future dates are not available.");
                 datePicker.value = yesterdayStr;
                 return;
             }
+
+            // Redirect: If today is selected, switch to Live mode automatically
+            if (datePicker.value === todayStr) {
+                console.log("Today selected in picker. Redirecting to Live Mode...");
+                const toggle = document.getElementById('live-toggle');
+                if (!toggle.checked) {
+                    toggle.checked = true;
+                    toggleLiveMode();
+                }
+                return;
+            }
+
             if (!isLiveMode) {
-                debouncedFetch(100); // Trigger fetch for selected date
+                debouncedFetch(100);
             }
         });
 
