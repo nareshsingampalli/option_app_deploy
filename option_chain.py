@@ -625,12 +625,15 @@ class OptionChainProcessor:
         for inst in instruments:
             print(f"Fetching candles for {inst['symbol']}...")
             try:
-                # Candle range: from target date back 5 days to handle ROC on first session candles
+                # Candle range: fetch 5 days back to handle ROC/indicators on first session candles accurately
                 to_date = target_date_str
-                from_date = target_date_str
+                # Calculate from_date as 5 days before target_date
+                target_dt = datetime.strptime(target_date_str, '%Y-%m-%d')
+                from_date = (target_dt - timedelta(days=5)).strftime('%Y-%m-%d')
                 
                 df_candles = self.strategy.get_candle_data(inst, from_date, to_date)
                 if df_candles is not None and not df_candles.empty:
+                    # Filter output to target_date_str ONLY so charts don't show multiple days
                     processed = self.process_data(df_candles, spot_map, inst, filter_date=target_date_str)
                     for row in processed:
                         row['symbol'] = inst['symbol']

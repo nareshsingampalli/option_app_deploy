@@ -310,7 +310,7 @@ class HistoricalStrategy(MarketDataStrategy):
 class OptionChainProcessor:
     def __init__(self, strategy: MarketDataStrategy):
         self.strategy = strategy
-    def process_data(self, df, spot_map, instr):
+    def process_data(self, df, spot_map, instr, filter_date=None):
         if df is None or df.empty: return []
         df = df.rename(columns={'close': 'ltp', 'open_interest': 'oi'})
         df['change_in_oi'] = df['oi'].diff().fillna(0)
@@ -335,6 +335,11 @@ class OptionChainProcessor:
         res = df[['ltp', 'change_in_ltp', 'roc_oi', 'roc_volume', 'roc_iv', 'coi_vol_ratio', 'spot_price']].reset_index()
         # MCX time filtering (09:00 - 23:30)
         res = res[(res['date'].dt.time >= datetime.strptime("09:00", "%H:%M").time())]
+        
+        # If a specific date was requested, filter to that date ONLY to avoid multiple days on charts
+        if filter_date:
+            res = res[res['date'].dt.strftime('%Y-%m-%d') == filter_date]
+            
         res['date'] = res['date'].astype(str)
         return res.to_dict(orient='records')
 
@@ -351,8 +356,12 @@ class OptionChainProcessor:
             spot_map = sm_df['close'].to_dict() if sm_df is not None else {}
             data = []
             for i in instrs:
-                df = self.strategy.get_candle_data(i, ds, ds)
-                recs = self.process_data(df, spot_map, i)
+                # Candle range: fetch 5 days back to handle ROC/indicators on first session candles accurately
+                target_dt = datetime.strptime(ds, '%Y-%m-%d')
+                from_date = (target_dt - timedelta(days=5)).strftime('%Y-%m-%d')
+                
+                df = self.strategy.get_candle_data(i, from_date, ds)
+                recs = self.process_data(df, spot_map, i, filter_date=ds)
                 for r in recs:
                     r['symbol'] = i['symbol']
                     data.append(r)
