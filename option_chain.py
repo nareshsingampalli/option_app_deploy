@@ -657,6 +657,8 @@ class OptionChainProcessor:
             filename = f"option_data_tabular_{target_date_str}_{clean_time}.csv"
         else:
             filename = f"option_data_tabular_{target_date_str}.csv"
+            if os.path.exists(filename):
+                os.remove(filename)
             
         df.to_csv(filename, index=False)
         print(f"Saved results to {filename}")
@@ -676,6 +678,8 @@ class OptionChainProcessor:
             filename = f"option_meta_{target_date_str}_{clean_time}.json"
         else:
             filename = f"option_meta_{target_date_str}.json"
+            if os.path.exists(filename):
+                os.remove(filename)
             
         with open(filename, 'w') as f:
             json.dump(meta, f, indent=4)
@@ -730,7 +734,7 @@ def _detect_strategy(target_date_str: str,
     #   Today's date is reserved strictly for Live mode. If the --live flag is
     #   missing, any request for today's date will be blocked by the guard below.
     if live_mode:
-        print(f"[StrategyDetect] Zone 1 → LIVE  (live_flag=True, date={target_date_str})")
+        print(f"[StrategyDetect] Zone 1 -> LIVE  (live_flag=True, date={target_date_str})")
         return LiveStrategy()
 
     # ── Guard: today's date without live mode ────────────────────────────────
@@ -754,8 +758,8 @@ def _detect_strategy(target_date_str: str,
     #   selected_date <= last_expired_date  →  contract has already expired;
     #   data is only available via the /v2/expired-instruments/ API.
     if last_expired_dt and target_dt <= last_expired_dt:
-        print(f"[StrategyDetect] Zone 2 → EXPIRED  "
-              f"({target_date_str} ≤ last_expired={last_expired_dt.date()})")
+        print(f"[StrategyDetect] Zone 2 -> EXPIRED  "
+              f"({target_date_str} <= last_expired={last_expired_dt.date()})")
         return ExpiredStrategy(symbol=symbol)
 
     # ── Zone 3: Historical ──────────────────────────────────────────────────
@@ -765,12 +769,12 @@ def _detect_strategy(target_date_str: str,
     #   Also covers: today with a time_str (intraday-historical slice).
     if target_dt <= today_dt:
         if target_time_str:
-            print(f"[StrategyDetect] Zone 3 → HISTORICAL (intraday-slice)  "
+            print(f"[StrategyDetect] Zone 3 -> HISTORICAL (intraday-slice)  "
                   f"({target_date_str} {target_time_str})")
         else:
-            print(f"[StrategyDetect] Zone 3 → HISTORICAL  "
+            print(f"[StrategyDetect] Zone 3 -> HISTORICAL  "
                   f"({last_expired_dt.date() if last_expired_dt else 'N/A'} "
-                  f"< {target_date_str} ≤ {today_str})")
+                  f"< {target_date_str} <= {today_str})")
         return HistoricalStrategy()
 
     # ── Future date (no data) ───────────────────────────────────────────────

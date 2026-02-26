@@ -364,6 +364,11 @@ class OptionChainProcessor:
     def save_meta(self, sp, ds, ts, exp, has_data, expired_contracts=False, error=None):
         suffix = f"_{ts.replace(':', '')}" if ts else ""
         meta_file = f"mcx_meta_{ds}{suffix}.json"
+        
+        # In live mode (no ts suffix), delete existing meta before creating new one
+        if not ts and os.path.exists(meta_file):
+            os.remove(meta_file)
+
         meta = {
             "spot_price": sp, 
             "target_date": ds, 
@@ -384,8 +389,14 @@ class OptionChainProcessor:
 
     def save_results(self, data, sp, ds, ts, exp, is_expired=False):
         suffix = f"_{ts.replace(':', '')}" if ts else ""
+        filename = f"mcx_data_tabular_{ds}{suffix}.csv"
+        
+        # In live mode (no ts suffix), delete existing results before creating new ones
+        if not ts and os.path.exists(filename):
+            os.remove(filename)
+
         if data:
-            pd.DataFrame(data).to_csv(f"mcx_data_tabular_{ds}{suffix}.csv", index=False)
+            pd.DataFrame(data).to_csv(filename, index=False)
             self.save_meta(sp, ds, ts, exp, True, expired_contracts=is_expired)
         else:
             is_expired_error = is_expired
