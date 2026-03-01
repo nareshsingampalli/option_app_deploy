@@ -143,7 +143,7 @@ class MCXInstrumentResolver(InstrumentResolver):
         year  = target_expiry.strftime("%y")
 
         # Matches: "CRUDEOIL 6600 CE 17 MAR 26" as requested
-        precise_pattern = rf"^{commodity} \d+ (CE|PE) \d{{1,2}} {month} {year}$"
+        precise_pattern = rf"^{commodity} \d+ (?:CE|PE) \d{{1,2}} {month} {year}$"
 
         opts = df_all[
             df_all["instrument_type"].isin(["CE", "PE"]) &
