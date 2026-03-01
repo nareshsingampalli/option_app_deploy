@@ -44,17 +44,25 @@ def view_logs():
 @app.route("/api/refresh-token", methods=["POST"])
 def refresh_token():
     try:
+        import glob
         env_file = os.getenv("ENV_FILE", "/home/ubuntu/refactor_app/.env")
+        print(f"[API] Reloading token from {env_file}")
         load_dotenv(env_file, override=True)
-        date_str  = datetime.now().strftime("%Y-%m-%d")
-        meta_path = os.path.join(os.getcwd(), f"option_meta_{date_str}.json")
-        if os.path.exists(meta_path):
-            with open(meta_path) as f:
-                meta = json.load(f)
-            if "Invalid token" in meta.get("error", ""):
-                meta.pop("error", None)
-                with open(meta_path, "w") as f:
-                    json.dump(meta, f, indent=4)
+        
+        # Clear out any cached 'Invalid token' errors in all recent metadata files
+        for dr in ["nse_data", "mcx_data"]:
+            meta_files = glob.glob(os.path.join(os.getcwd(), dr, "*meta*.json"))
+            for path in meta_files:
+                try:
+                    with open(path) as f:
+                        meta = json.load(f)
+                    if "error" in meta and ("token" in meta["error"].lower() or "auth" in meta["error"].lower() or "unauthorized" in meta["error"].lower()):
+                        meta.pop("error", None)
+                        with open(path, "w") as f:
+                            json.dump(meta, f, indent=4)
+                except Exception:
+                    pass
+                    
         return jsonify({"message": "Token refreshed."}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
