@@ -38,26 +38,12 @@ class HistoricalCandleFetcher(BaseCandleFetcher):
             )
 
         try:
-            if hasattr(signal, "SIGALRM"):
-                signal.signal(signal.SIGALRM, _timeout_handler)
-                signal.alarm(timeout_secs)
-            
             resp = _get()
-            
-            if hasattr(signal, "SIGALRM"):
-                signal.alarm(0)
             return self._process_response(resp)
-        except TimeoutError:
-            print(f"[HistoricalFetcher] Timeout: {instrument_key}")
-            return None
         except ApiException as e:
-            if hasattr(signal, "SIGALRM"):
-                signal.alarm(0)
             print(f"[HistoricalFetcher] ApiException {instrument_key}: {e}")
             return None
         except Exception as e:
-            if hasattr(signal, "SIGALRM"):
-                signal.alarm(0)
             print(f"[HistoricalFetcher] Error {instrument_key}: {e}")
             return None
 
