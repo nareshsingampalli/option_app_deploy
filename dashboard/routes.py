@@ -93,6 +93,14 @@ def get_option_data():
     is_today    = date_str == ist_now().strftime("%Y-%m-%d")
     prefix      = "mcx" if exchange == "MCX" else "option"
 
+    # Auto-upgrade to live mode when the requested date is today.
+    # Today's data can only come from the live API — there's no historical snapshot.
+    # This prevents TodayGuardHandler blocking requests when the frontend
+    # switches symbols without explicitly sending live=true.
+    if is_today and not live_mode:
+        print(f"[API] Date is today, auto-upgrading to live mode.")
+        live_mode = True
+
     # Store requested time for metadata extraction later
     requested_time = time_str if not live_mode else ""
 
