@@ -30,24 +30,29 @@ class BSEActiveResolver(InstrumentResolver):
         # BSE instrument list usually comes as JSON.gz
         df = get_instrument_df(BSE_INSTRUMENT_URL, "BSE")
 
-        # Filter: instrument_type 'OPTIDX' and name (e.g. SENSEX)
+        # BSE instruments: instrument_type is 'CE' or 'PE' directly (not 'OPTIDX')
         sym_upper = symbol.upper()
         opts = df[
-            (df["instrument_type"] == "OPTIDX") &
+            (df["instrument_type"].isin(["CE", "PE"])) &
             (df["name"] == sym_upper)
         ].copy()
         
-        # Rename columns if necessary (Upstox CSV/JSON usually have these)
+        # Rename columns if necessary
         if "tradingsymbol" in opts.columns:
             opts = opts.rename(columns={"tradingsymbol": "trading_symbol"})
         if "strike" in opts.columns:
             opts = opts.rename(columns={"strike": "strike_price"})
 
         if opts.empty:
-            print(f"[BSEActiveResolver] No instruments found for {sym_upper}")
+            print(f"[BSEActiveResolver] No CE/PE instruments found for {sym_upper}")
             return [], None, False
 
-        opts["expiry"] = pd.to_datetime(opts["expiry"])
+        # BSE Expiry is often in epoch milliseconds
+        if pd.api.types.is_numeric_dtype(opts["expiry"]):
+            opts["expiry"] = pd.to_datetime(opts["expiry"], unit="ms")
+        else:
+            opts["expiry"] = pd.to_datetime(opts["expiry"])
+            
         ref_dt = pd.to_datetime(reference_date)
 
         # Nearest expiry >= reference_date
