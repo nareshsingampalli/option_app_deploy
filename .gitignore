@@ -21,3 +21,9 @@ cache/
 venv/
 .venv/
 env/
+simulator/
+.antigravity*
+.agents/
+.agent/
+_agents/
+_agent/

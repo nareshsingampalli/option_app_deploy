@@ -10,37 +10,71 @@ from core.config import CACHE_DIR
 from upstox_client.rest import ApiException
 import functools
 
-def retry_api_call(max_retries: int = 3, initial_delay: float = 1.0):
+import threading
+
+_api_rl_lock = threading.Lock()
+_api_rl_wait_until = 0.0
+
+def retry_api_call(max_retries: int = 3, initial_delay: float = 1.0, max_duration: float = 280.0):
     """Decorator to retry API calls on 429 (Rate Limit) and transient 5xx errors."""
     def decorator(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
+            global _api_rl_wait_until
+            start_time = time.time()
             retries = 0
             delay = initial_delay
-            while retries < max_retries:
+            
+            while True:
+                # 1. Check if we've reached the 5-min limit (280s to finish before next 300s cycle)
+                if time.time() - start_time >= max_duration:
+                    print(f"[Retry] Request stale ({max_duration}s elapsed). Dropping to make way for new scheduler requests.")
+                    raise TimeoutError(f"API request timed out due to max_duration ({max_duration}s).")
+
+                # 2. Global Rate Limit check - pause if another thread requested a wait
+                with _api_rl_lock:
+                    wait_time = _api_rl_wait_until - time.time()
+                
+                if wait_time > 0:
+                    time.sleep(min(wait_time, max_duration - (time.time() - start_time)))
+                    continue # Re-evaluate duration and lock after sleeping
+
+                # 3. Call the API
                 try:
                     return func(*args, **kwargs)
                 except ApiException as e:
                     # Retry on Rate Limit (429) or Server Errors (500, 502, 503, 504)
-                    if e.status in (429, 500, 502, 503, 504):
+                    if getattr(e, "status", None) in (429, 500, 502, 503, 504):
                         retries += 1
-                        if retries >= max_retries:
-                            print(f"[Retry] Max retries reached. Last error: {e}")
-                            raise e
-                        print(f"[Retry] Error {e.status} detected. Retrying in {delay}s... ({retries}/{max_retries})")
-                        time.sleep(delay)
+                        if retries > max_retries:
+                            print(f"[Retry] Resetting delay to {initial_delay}s after {max_retries} attempts.")
+                            retries = 1
+                            delay = initial_delay
+                        
+                        print(f"[Retry] API Error {e.status} detected. All threads pausing for {delay}s... (Attempt {retries}/{max_retries} before reset)")
+                        
+                        with _api_rl_lock:
+                            new_wait_until = time.time() + delay
+                            if new_wait_until > _api_rl_wait_until:
+                                _api_rl_wait_until = new_wait_until
+                                
                         delay *= 2  # Exponential backoff
                     else:
                         raise e
                 except Exception as e:
                     # Also retry on generic transient connection errors
                     retries += 1
-                    if retries >= max_retries:
-                        raise e
-                    print(f"[Retry] Transient error {type(e).__name__}. Retrying in {delay}s...")
-                    time.sleep(delay)
+                    if retries > max_retries:
+                        print(f"[Retry] Resetting delay to {initial_delay}s after {max_retries} attempts.")
+                        retries = 1
+                        delay = initial_delay
+                    
+                    print(f"[Retry] Transient error {type(e).__name__} during API call. Retrying in {delay}s...")
+                    sleep_time = min(delay, max_duration - (time.time() - start_time))
+                    if sleep_time > 0:
+                        time.sleep(sleep_time)
                     delay *= 2
-            return func(*args, **kwargs)
+                    
         return wrapper
     return decorator
 

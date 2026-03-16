@@ -200,6 +200,17 @@ input:checked+.slider-toggle:before {
     z-index: 1000;
 }
 
+#loading.waiting {
+    background: #fff3cd; /* Warm Warning Yellow */
+    color: #856404;
+    bottom: auto;
+    height: 40px;
+    font-size: 14px;
+    border-bottom: 2px solid #ffeeba;
+    box-shadow: 0 2px 10px rgba(133, 100, 4, 0.2);
+    pointer-events: none; /* Allow interaction with the elements underneath */
+}
+
 /* ── Symbol Selector ─────────────────────────────────────────────────────── */
 .symbol-selector {
     display: flex;
@@ -275,4 +286,44 @@ input:checked+.slider-toggle:before {
 
 .shortcut-hint.visible {
     opacity: 1;
+}
+
+/* ── Responsive Mobile Styles ────────────────────────────────────────────── */
+@media (max-width: 768px) {
+    .app-container {
+        flex-direction: column;
+        overflow-y: auto;
+        height: auto;
+    }
+
+    .sidebar {
+        width: 100%;
+        box-sizing: border-box;
+        border-right: none;
+        border-bottom: 1px solid var(--border-color);
+        padding: 15px;
+        gap: 15px;
+        height: auto;
+        overflow-y: visible;
+    }
+
+    .main-content {
+        padding: 10px;
+        height: auto;
+        overflow-y: visible;
+    }
+
+    .chart-container {
+        padding: 10px;
+        min-height: 350px;
+    }
+
+    .sidebar h2 {
+        font-size: 16px;
+    }
+
+    /* Small hack for Plotly legends on narrow screens */
+    .legend {
+        font-size: 10px !important;
+    }
 }

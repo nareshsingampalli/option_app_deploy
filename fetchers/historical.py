@@ -39,6 +39,7 @@ class HistoricalCandleFetcher(BaseCandleFetcher):
 
         try:
             resp = _get()
+            self._save_mock_response(resp, "historical", instrument_key)
             return self._process_response(resp)
         except ApiException as e:
             print(f"[HistoricalFetcher] ApiException {instrument_key}: {e}")

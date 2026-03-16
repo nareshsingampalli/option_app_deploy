@@ -63,33 +63,63 @@ class ChartRenderer extends UIComponent {
                 <div id="${chartId}"></div>`;
             this.container.appendChild(chartDiv);
 
-            const traces = selectedInstruments
-                .filter(sym => grouped[sym])
-                .map(sym => {
-                    const firstRow = grouped[sym].rows[0];
-                    const lastRow = grouped[sym].rows[grouped[sym].rows.length - 1];
+            let traces = [];
 
-                    // Build pretty label: e.g. "NIFTY 22400 CE"
-                    let prettyName = sym;
-                    try {
-                        const baseMatch = sym.match(/^[A-Z]+/);
-                        const baseSym = baseMatch ? baseMatch[0] : '';
-                        if (firstRow && firstRow.strike && firstRow.option_type) {
-                            prettyName = `${baseSym} ${firstRow.strike} ${firstRow.option_type}`;
+            if (metric === 'spot_price') {
+                const dateToSpot = new Map();
+                rawData.forEach(row => {
+                    if (row.spot_price !== undefined && row.spot_price !== null && row.spot_price !== "") {
+                        if (!dateToSpot.has(row.date)) {
+                            dateToSpot.set(row.date, row.spot_price);
                         }
-                    } catch (e) {
-                        prettyName = sym;
                     }
-
-                    const { color, dash } = this._colorFor(sym);
-                    return {
-                        x: grouped[sym].x,
-                        y: grouped[sym].rows.map(r => r[metric]),
-                        mode: 'lines',
-                        name: prettyName,
-                        line: { dash, width: 2, color }
-                    };
                 });
+
+                const xDates = Array.from(dateToSpot.keys()).sort();
+                const yPrices = xDates.map(date => dateToSpot.get(date));
+
+                let underlyingName = 'Underlying';
+                if (selectedInstruments.length > 0) {
+                    const match = selectedInstruments[0].match(/^[A-Z]+/);
+                    if (match) underlyingName = match[0];
+                }
+
+                traces.push({
+                    x: xDates,
+                    y: yPrices,
+                    mode: 'lines',
+                    name: `${underlyingName} Spot`,
+                    line: { width: 3, color: '#1f77b4' }
+                });
+            } else {
+                traces = selectedInstruments
+                    .filter(sym => grouped[sym])
+                    .map(sym => {
+                        const firstRow = grouped[sym].rows[0];
+                        const lastRow = grouped[sym].rows[grouped[sym].rows.length - 1];
+
+                        // Build pretty label: e.g. "NIFTY 22400 CE"
+                        let prettyName = sym;
+                        try {
+                            const baseMatch = sym.match(/^[A-Z]+/);
+                            const baseSym = baseMatch ? baseMatch[0] : '';
+                            if (firstRow && firstRow.strike && firstRow.option_type) {
+                                prettyName = `${baseSym} ${firstRow.strike} ${firstRow.option_type}`;
+                            }
+                        } catch (e) {
+                            prettyName = sym;
+                        }
+
+                        const { color, dash } = this._colorFor(sym);
+                        return {
+                            x: grouped[sym].x,
+                            y: grouped[sym].rows.map(r => r[metric]),
+                            mode: 'lines',
+                            name: prettyName,
+                            line: { dash, width: 2, color }
+                        };
+                    });
+            }
 
             const layout = {
                 margin: { t: 20, r: 20, l: 50, b: 40 },
@@ -97,11 +127,18 @@ class ChartRenderer extends UIComponent {
                 xaxis: { title: 'Time' },
                 yaxis: { title: this._metrics.label(metric) },
                 hovermode: 'x unified',
+                dragmode: false, // Disables the zoom-box on drag, allowing touch for tooltips/prices
                 showlegend: true,
                 legend: { orientation: 'h', y: -0.2 }
             };
 
-            Plotly.newPlot(chartId, traces, layout);
+            const config = {
+                responsive: true,
+                displayModeBar: false, // Cleaner UI for mobile
+                scrollZoom: false,     // Prevent accidental zooming on mobile
+            };
+
+            Plotly.newPlot(chartId, traces, layout, config);
         });
     }
 }

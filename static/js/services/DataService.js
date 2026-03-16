@@ -42,7 +42,19 @@ class DataService {
             const data = await this._api.getOptionData(params);
 
             if (data.error) {
-                if (!silent) alert(data.error);
+                if (!silent) {
+                    if (data.error.includes("Waiting for data")) {
+                        // Non-blocking: Show as a hint in the UI instead of alert
+                        if (loader) {
+                            loader.textContent = data.error;
+                            loader.style.display = 'flex';
+                            loader.classList.add('waiting'); // Style this to look like a notice
+                        }
+                    } else {
+                        alert(data.error);
+                        if (loader) loader.style.display = 'none';
+                    }
+                }
                 this._updateMeta(data.meta || {});
                 return;
             }
@@ -58,7 +70,13 @@ class DataService {
             console.error('[DataService] fetch error:', err);
             if (!silent) alert('Error loading data. Check console.');
         } finally {
-            if (loader) loader.style.display = 'none';
+            // Only hide the loader if we actually got data or a hard error
+            // (Don't hide if we are in the 'Waiting' state)
+            const isWaiting = loader && loader.textContent.includes("Waiting for data");
+            if (loader && !isWaiting) {
+                loader.style.display = 'none';
+                loader.classList.remove('waiting');
+            }
         }
     }
 

@@ -24,7 +24,7 @@ class BaseCandleFetcher(ABC):
         token = access_token or os.getenv("UPSTOX_ACCESS_TOKEN")
         if not token or token.strip() in ("", "None"):
             # Fallback to the token used in candle_fetchers.py (line 20)
-            token = 'eyJ0eXAiOiJKV1QiLCJrZXlfaWQiOiJza192MS4wIiwiYWxnIjoiSFMyNTYifQ.eyJzdWIiOiI4Q0FRNzUiLCJqdGkiOiI2OWE0MDcyYmEwMDMwMzdmNDM4NGU2OGEiLCJpc011bHRpQ2xpZW50IjpmYWxzZSwiaXNQbHVzUGxhbiI6dHJ1ZSwiaWF0IjoxNzcyMzU3NDE5LCJpc3MiOiJ1ZGFwaS1nYXRld2F5LXNlcnZpY2UiLCJleHAiOjE3NzI0MDI0MDB9.3ttGjJegTK-CFt5-Xc4mBRcSUdRaxkKlAnIDkVZR2js'
+            token = 'eyJ0eXAiOiJKV1QiLCJrZXlfaWQiOiJza192MS4wIiwiYWxnIjoiSFMyNTYifQ.eyJzdWIiOiI4Q0FRNzUiLCJqdGkiOiI2OWI3N2MzYTg2N2UzYjJmYjY3OTI5MTgiLCJpc011bHRpQ2xpZW50IjpmYWxzZSwiaXNQbHVzUGxhbiI6dHJ1ZSwiaWF0IjoxNzczNjMyNTcwLCJpc3MiOiJ1ZGFwaS1nYXRld2F5LXNlcnZpY2UiLCJleHAiOjE3NzM2OTg0MDB9.cxXbGG8N-_2izYa8HaBhFxNQ0a8oizOQ84lciQUtvcA'
         if not token or token.strip() in ("", "None"):
             raise ConfigurationError(
                 "UPSTOX_ACCESS_TOKEN is not set. "
@@ -51,6 +51,41 @@ class BaseCandleFetcher(ABC):
         self, spot_key: str, date_str: str
     ) -> pd.DataFrame | None:
         """Return intraday spot candles used to build the IV spot-map."""
+
+    # ── Mock Data Capture ────────────────────────────────────────────────────
+    def _save_mock_response(self, raw_data, endpoint_type: str, instrument_key: str):
+        """Saves live API responses to disk so they can be replayed by the simulator."""
+        # Only save if explicitly asked and NOT using the mock server
+        if os.environ.get("SAVE_MOCK_DATA", "").lower() != "true":
+            return
+        if os.environ.get("UPSTOX_API_URL"):
+            return
+            
+        import json
+        import time
+        from pathlib import Path
+        
+        try:
+            safe_key = instrument_key.replace('|', '_').replace(':', '_')
+            ts = int(time.time() * 1000)
+            
+            target_dir = Path(os.getcwd()) / "mock_data" / endpoint_type
+            target_dir.mkdir(parents=True, exist_ok=True)
+            
+            filepath = target_dir / f"{safe_key}_{ts}.json"
+            
+            if hasattr(raw_data, "to_dict"):
+                dict_data = raw_data.to_dict()
+            elif isinstance(raw_data, dict):
+                dict_data = raw_data
+            else:
+                return # Don't know how to serialize
+                
+            with open(filepath, "w") as f:
+                json.dump(dict_data, f, indent=2)
+            print(f"[MockData] Saved response to {filepath}")
+        except Exception as e:
+            print(f"[MockData] Failed to save {endpoint_type} mock data: {e}")
 
     # ── Shared response parser ───────────────────────────────────────────────
     def _process_response(self, response) -> pd.DataFrame | None:

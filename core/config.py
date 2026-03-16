@@ -18,10 +18,18 @@ MCX_FUT_KEYS: dict[str, str] = {
     "GOLD":       "MCX_COM|114",
 }
 
+import os
+
 # ── Instrument list download URLs ────────────────────────────────────────────
-NSE_INSTRUMENT_URL = "https://assets.upstox.com/market-quote/instruments/exchange/NSE.csv.gz"
-MCX_INSTRUMENT_URL = "https://assets.upstox.com/market-quote/instruments/exchange/MCX.json.gz"
-BSE_INSTRUMENT_URL = "https://assets.upstox.com/market-quote/instruments/exchange/BSE.json.gz"
+def _get_instrument_url(path: str) -> str:
+    mock_url = os.getenv("UPSTOX_API_URL")
+    if mock_url:
+        return f"{mock_url}/{path}"
+    return f"https://assets.upstox.com/{path}"
+
+NSE_INSTRUMENT_URL = _get_instrument_url("market-quote/instruments/exchange/NSE.csv.gz")
+MCX_INSTRUMENT_URL = _get_instrument_url("market-quote/instruments/exchange/MCX.json.gz")
+BSE_INSTRUMENT_URL = _get_instrument_url("market-quote/instruments/exchange/BSE.json.gz")
 
 CACHE_DIR = "cache"
 # ── Trading time windows (IST, used for data filtering) ─────────────────────

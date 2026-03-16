@@ -122,14 +122,10 @@ def get_option_data():
     
     # Needs fetch if:
     # 1. File doesn't exist
-    # 2. It's live mode and file is > 60s old (fast refresh)
-    # 3. It's today and file is > 300s old (to refresh the Accumulating File)
+    # 2. It's live mode or today and data is > 300s old (waiting for scheduler)
     needs_fetch  = not file_exists 
     if file_exists:
-        if live_mode:
-            needs_fetch = file_age_s > 60
-        elif is_today:
-            # Refresh the main today file every 5 mins if scheduler isn't active
+        if live_mode or is_today:
             needs_fetch = file_age_s > 300
         else:
             # Historical (Yesterday/etc) - check if it was a fallback fetch
@@ -164,43 +160,53 @@ def get_option_data():
              lock = get_lock(symbol)
              
         print(f"[API] Acquiring lock for {symbol}...")
-        acquired = lock.acquire(timeout=310)
+        # Only wait very briefly (e.g. 1 second). If a background fetch is running, 
+        # just fall through and serve the older CSV data immediately to keep UI responsive.
+        acquired = lock.acquire(timeout=1.0)
         if acquired:
-            try:
-                print(f"[API] Lock acquired. Checking freshness...")
-                if os.path.exists(csv_path) and time.time() - os.path.getmtime(csv_path) < 60:
-                    print("[API] Data already fresh, skipping fetch.")
-                else:
-                    from storage.db_storage import build_storage_chain
-                    from strategies.handlers import build_pipeline
-                    
-                    print(f"[API] Building pipeline for {exchange}...")
-                    storage  = build_storage_chain()
-                    pipeline = build_pipeline(exchange, date_str, live_mode, symbol, storage)
-
-                    if pipeline:
-                        print(f"[API] Running pipeline...")
-                        pipeline.run(symbol, date_str, time_str)
-                    else:
-                        print(f"[API] Pipeline resolution failed for {date_str}")
-                    
-                    # Notify only clients in the specific symbol room
-                    socketio.emit("data_updated", 
-                                  {"prefix": exchange, "symbol": symbol, "timestamp": datetime.now().isoformat()},
-                                  to=symbol)
-            except Exception as e:
-                print(f"[API] Fetch error: {e}")
-                import traceback
-                traceback.print_exc()
-                return jsonify({"error": f"Fetch error: {e}"}), 500
-            finally:
+            print(f"[API] Lock acquired. Checking freshness...")
+            if os.path.exists(csv_path) and time.time() - os.path.getmtime(csv_path) < 60:
+                print("[API] Data already fresh, skipping fetch.")
                 try:
                     lock.release()
-                    print(f"[API] Lock released for {symbol}")
                 except RuntimeError:
                     pass
+            else:
+                def bg_fetch():
+                    with app.app_context():
+                        try:
+                            from storage.db_storage import build_storage_chain
+                            from strategies.handlers import build_pipeline
+                            
+                            print(f"[API-BG] Building pipeline for {exchange}...")
+                            storage  = build_storage_chain()
+                            pipeline = build_pipeline(exchange, date_str, live_mode, symbol, storage)
+
+                            if pipeline:
+                                print(f"[API-BG] Running pipeline...")
+                                pipeline.run(symbol, date_str, time_str)
+                            else:
+                                print(f"[API-BG] Pipeline resolution failed for {date_str}")
+                            
+                            # Notify only clients in the specific symbol room
+                            socketio.emit("data_updated", 
+                                          {"prefix": exchange, "symbol": symbol, "timestamp": datetime.now().isoformat()},
+                                          room=symbol)
+                        except Exception as e:
+                            print(f"[API-BG] Fetch error: {e}")
+                            import traceback
+                            traceback.print_exc()
+                        finally:
+                            try:
+                                lock.release()
+                                print(f"[API-BG] Lock released for {symbol}")
+                            except RuntimeError:
+                                pass
+                
+                import threading
+                threading.Thread(target=bg_fetch, daemon=True).start()
         else:
-            print(f"[API] Failed to acquire lock for {symbol} within 310s")
+            print(f"[API] Background fetch currently running for {symbol}. Serving existing data...")
 
         if not os.path.exists(csv_path):
             if os.path.exists(meta_path):
@@ -211,9 +217,9 @@ def get_option_data():
                 if meta.get("expired_contracts"):
                     return jsonify({"error": f"Contracts for {date_str} have expired.", "meta": meta}), 200
                 return jsonify({"data": [], "meta": meta}), 200
-            msg = f"No data available for {date_str}."
-            if is_today and not live_mode:
-                msg += " Enable Live mode for today's data."
+            
+            # Clear information instead of a generic error
+            msg = f"Waiting for data from Upstox server for {symbol}. Fetch is in progress..."
             return jsonify({"error": msg}), 200
 
     try:

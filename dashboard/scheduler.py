@@ -67,9 +67,8 @@ def _main_scheduler_loop():
         cur_min = now.minute
         active_symbols = get_active_symbols()
         
-        # Always ensure base symbols are "active" for background maintenance
-        if "NIFTY" not in active_symbols: active_symbols.append("NIFTY")
-        if "CRUDEOIL" not in active_symbols: active_symbols.append("CRUDEOIL")
+        # Only fetch symbols that are actively being watched by a frontend client
+        pass
 
         for symbol in active_symbols:
             # Determine exchange and config

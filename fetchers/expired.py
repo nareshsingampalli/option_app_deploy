@@ -8,7 +8,9 @@ from core.rate_limiter import rate_limited
 from core.config import UPSTOX_RATE_LIMIT_CALLS, UPSTOX_RATE_LIMIT_PERIOD
 from fetchers.base import BaseCandleFetcher
 
-_BASE = "https://api.upstox.com/v2/expired-instruments"
+import os
+
+_BASE = os.getenv("UPSTOX_API_URL", "https://api.upstox.com") + "/v2/expired-instruments"
 
 
 class ExpiredCandleFetcher(BaseCandleFetcher):
@@ -29,7 +31,9 @@ class ExpiredCandleFetcher(BaseCandleFetcher):
         try:
             r = requests.get(url, headers=self._headers, timeout=15)
             if r.status_code == 200:
-                return r.json().get("data", [])
+                data = r.json()
+                self._save_mock_response(data, "expired_expiries", underlying_key)
+                return data.get("data", [])
             print(f"[ExpiredFetcher] fetch_expiries {r.status_code}: {r.text[:200]}")
         except Exception as e:
             print(f"[ExpiredFetcher] fetch_expiries error: {e}")
@@ -42,7 +46,9 @@ class ExpiredCandleFetcher(BaseCandleFetcher):
         try:
             r = requests.get(url, headers=self._headers, timeout=15)
             if r.status_code == 200:
-                return r.json().get("data", [])
+                data = r.json()
+                self._save_mock_response(data, "expired_contracts", f"{underlying_key}_{expiry_date}")
+                return data.get("data", [])
             print(f"[ExpiredFetcher] fetch_contracts {r.status_code}: {r.text[:200]}")
         except Exception as e:
             print(f"[ExpiredFetcher] fetch_contracts error: {e}")
@@ -57,7 +63,9 @@ class ExpiredCandleFetcher(BaseCandleFetcher):
         try:
             r = requests.get(url, headers=self._headers, timeout=15)
             if r.status_code == 200:
-                return self._process_response(r.json())
+                data = r.json()
+                self._save_mock_response(data, "expired", instrument_key)
+                return self._process_response(data)
             print(f"[ExpiredFetcher] fetch_candle_data {r.status_code}: {r.text[:200]}")
         except Exception as e:
             print(f"[ExpiredFetcher] fetch_candle_data error: {e}")
