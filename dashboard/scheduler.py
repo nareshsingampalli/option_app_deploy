@@ -71,13 +71,17 @@ def _main_scheduler_loop():
         pass
 
         for symbol in active_symbols:
+            sym_upper = symbol.upper()
             # Determine exchange and config
-            if symbol in NSE_INDEX_KEYS or symbol == "NIFTY":
+            if sym_upper in NSE_INDEX_KEYS or sym_upper in ["NIFTY", "BANKNIFTY", "FINNIFTY"]:
                 cfg = SCHEDULER_HOURS["NSE"]
                 prefix = "NSE"
-            elif symbol in MCX_FUT_KEYS or symbol == "CRUDEOIL":
+            elif sym_upper in MCX_FUT_KEYS or sym_upper in ["CRUDEOIL", "NATURALGAS", "SILVER", "GOLD"]:
                 cfg = SCHEDULER_HOURS["MCX"]
                 prefix = "MCX"
+            elif sym_upper in ["SENSEX", "BANKEX"]:
+                cfg = SCHEDULER_HOURS["BSE"]
+                prefix = "BSE"
             else:
                 continue # Unknown symbol
 

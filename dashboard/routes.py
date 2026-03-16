@@ -134,7 +134,30 @@ def get_option_data():
     needs_fetch  = not file_exists 
     if file_exists:
         if live_mode or is_today:
-            needs_fetch = file_age_s > 300
+            # Smart After-Hours Check:
+            # We want to fetch exactly once after market hours to get the final EOD data.
+            # Then we serve from disk forever for the rest of the night.
+            now_dt = ist_now()
+            # Market ends: NSE/BSE @ 15:30, MCX @ 23:30. 
+            # We use a 10-min buffer (15:40 / 23:40) to ensure the server has processed the close.
+            m_end_h, m_end_m = (15, 40) if exchange != "MCX" else (23, 40)
+            m_end_dt = now_dt.replace(hour=m_end_h, minute=m_end_m, second=0, microsecond=0)
+            
+            is_closed = now_dt > m_end_dt
+            
+            if is_closed:
+                file_mtime = datetime.fromtimestamp(os.path.getmtime(csv_path)).replace(tzinfo=now_dt.tzinfo)
+                # If the file on disk was modified AFTER the market end, it's our "final" version.
+                if file_mtime > m_end_dt:
+                    needs_fetch = False 
+                    # print(f"[API] Serving final EOD data from disk for {symbol}.")
+                else:
+                    # The file exists but is from during market hours. 
+                    # Fetch one last time to get final data, but only every 30 mins to avoid 429s.
+                    needs_fetch = file_age_s > 1800
+            else:
+                # During market hours - 5-min TTL
+                needs_fetch = file_age_s > 300
         else:
             # Historical (Yesterday/etc) - check if it was a fallback fetch
             if os.path.exists(meta_path):
