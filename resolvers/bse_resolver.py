@@ -76,7 +76,7 @@ class BSEActiveResolver(InstrumentResolver):
             for opt_type in ("CE", "PE"):
                 rows = expiry_df[
                     (expiry_df["strike_price"] == strike) &
-                    (expiry_df["option_type"] == opt_type)
+                    (expiry_df["instrument_type"] == opt_type)
                 ]
                 if rows.empty:
                     continue
