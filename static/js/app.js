@@ -15,6 +15,7 @@ const chartRenderer = new ChartRenderer('charts-area', metricSelector);
 // ── State ────────────────────────────────────────────────────────────────────
 let isLiveMode = false;
 let refreshInterval = null;
+let currentRenderedSymbol = null; // Track which symbol's instruments are currently in the list
 
 // ── Wiring: Data → UI ────────────────────────────────────────────────────────
 dataService.subscribe((records, isInitial) => {
@@ -24,8 +25,11 @@ dataService.subscribe((records, isInitial) => {
         return;
     }
     // 1. Update instrument list
+    const currentSymbol = symbolSelector.symbol;
     const hasInstruments = document.querySelectorAll('.instrument-cb').length > 0;
-    if (isInitial || !hasInstruments) {
+    
+    // Force re-render if it's initial, or no instruments, or the symbol has changed
+    if (isInitial || !hasInstruments || currentRenderedSymbol !== currentSymbol) {
         try {
             const symbols = [...new Set(records.map(r => r.symbol))].sort();
             const instrumentInfo = symbols.map(sym => {
@@ -40,6 +44,7 @@ dataService.subscribe((records, isInitial) => {
             });
             if (instrumentInfo.length > 0) {
                 instrumentSelector.render(instrumentInfo);
+                currentRenderedSymbol = currentSymbol;
             }
         } catch (e) {
             console.error("[App] Instrument list render error:", e);
@@ -54,6 +59,10 @@ dataService.subscribe((records, isInitial) => {
 symbolSelector.onChange(({ exchange, symbol }) => {
     console.log(`[App] Market changed: ${exchange} - ${symbol}`);
     timeSelector.setExchange(exchange);
+    
+    // Clear old state immediately so user doesn't see stale data
+    chartRenderer.clear ? chartRenderer.clear() : null; 
+    
     if (isLiveMode) {
         dataService.initWebSocket(exchange, symbol);
     }

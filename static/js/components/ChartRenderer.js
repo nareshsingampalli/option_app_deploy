@@ -26,6 +26,10 @@ class ChartRenderer extends UIComponent {
         return { color: '#888888', dash: 'solid' };
     }
 
+    clear() {
+        if (this.container) this.container.innerHTML = '';
+    }
+
     render(rawData, selectedInstruments) {
         if (!this.container) return;
         this.container.innerHTML = '';
