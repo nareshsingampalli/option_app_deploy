@@ -96,7 +96,40 @@ class ChartRenderer extends UIComponent {
                     line: { width: 3, color: '#1f77b4' }
                 });
             } else {
-                traces = selectedInstruments
+                // 1. Separate CE and PE groups
+                const ces = selectedInstruments.filter(s => s.includes('CE'));
+                const pes = selectedInstruments.filter(s => s.includes('PE'));
+
+                // 2. Sorting function by strike
+                const sortByStrike = (a, b) => {
+                    const getStrike = (s) => parseInt(s.match(/\d+/)?.[0] || 0);
+                    return getStrike(a) - getStrike(b);
+                };
+                ces.sort(sortByStrike);
+                pes.sort(sortByStrike);
+
+                // 3. Global high comparison
+                const getGlobalMaxHigh = (syms) => {
+                    let max = 0;
+                    syms.forEach(sym => {
+                        if (grouped[sym]) {
+                            grouped[sym].rows.forEach(r => {
+                                // Prefer 'high', fallback to 'ltp' or 'close'
+                                const val = parseFloat(r.high || r.ltp || r.close || 0);
+                                if (val > max) max = val;
+                            });
+                        }
+                    });
+                    return max;
+                };
+
+                const maxCe = getGlobalMaxHigh(ces);
+                const maxPe = getGlobalMaxHigh(pes);
+
+                // 4. Final ordered list: higher group first
+                const orderedInstruments = (maxPe > maxCe) ? [...pes, ...ces] : [...ces, ...pes];
+
+                traces = orderedInstruments
                     .filter(sym => grouped[sym])
                     .map(sym => {
                         const firstRow = grouped[sym].rows[0];
