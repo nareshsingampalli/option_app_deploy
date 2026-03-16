@@ -21,8 +21,11 @@ MCX_FUT_KEYS: dict[str, str] = {
 import os
 
 # ── Instrument list download URLs ────────────────────────────────────────────
+# NOTE: UPSTOX_INSTRUMENT_URL is only set in mock/test environments.
+#       UPSTOX_API_URL is for the Upstox REST API (requires auth) and must
+#       NOT be used for instrument CDN downloads (assets.upstox.com is public).
 def _get_instrument_url(path: str) -> str:
-    mock_url = os.getenv("UPSTOX_API_URL")
+    mock_url = os.getenv("UPSTOX_INSTRUMENT_URL")
     if mock_url:
         return f"{mock_url}/{path}"
     return f"https://assets.upstox.com/{path}"
