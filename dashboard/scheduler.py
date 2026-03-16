@@ -71,6 +71,8 @@ def _main_scheduler_loop():
         pass
 
         for symbol in active_symbols:
+            if not symbol:
+                continue
             sym_upper = symbol.upper()
             # Determine exchange and config
             if sym_upper in NSE_INDEX_KEYS or sym_upper in ["NIFTY", "BANKNIFTY", "FINNIFTY"]:
