@@ -14,6 +14,7 @@ class SymbolSelector {
             { key: 'NIFTY', label: 'Nifty 50', shortcut: 'n' },
             { key: 'BANKNIFTY', label: 'BankNifty', shortcut: 'b' },
             { key: 'FINNIFTY', label: 'FinNifty', shortcut: 'f' },
+            { key: 'SENSEX', label: 'Sensex', shortcut: 'q' },
         ],
         MCX: [
             { key: 'CRUDEOIL', label: 'Crude Oil', shortcut: 'c' },

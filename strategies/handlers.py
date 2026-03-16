@@ -33,6 +33,7 @@ from fetchers.factory import CandleFetcherFactory
 from fetchers.expired import ExpiredCandleFetcher
 from resolvers.nse_resolver import NSEActiveResolver, NSEExpiredResolver
 from resolvers.mcx_resolver import MCXInstrumentResolver
+from resolvers.bse_resolver import BSEActiveResolver
 from storage.base import StorageHandler
 from strategies.base import MarketDataPipeline
 
@@ -76,6 +77,9 @@ class LiveHandler(StrategyHandler):
         if ctx.exchange == "MCX":
             from strategies.mcx import MCXLivePipeline
             return MCXLivePipeline(fetcher, MCXInstrumentResolver(), storage, symbol=ctx.symbol)
+        if ctx.exchange == "BSE":
+            from strategies.bse import BSELivePipeline
+            return BSELivePipeline(fetcher, BSEActiveResolver(), storage, symbol=ctx.symbol)
         from strategies.nse import NSELivePipeline
         return NSELivePipeline(fetcher, NSEActiveResolver(), storage, symbol=ctx.symbol)
 
@@ -125,6 +129,9 @@ class HistoricalHandler(StrategyHandler):
         if ctx.exchange == "MCX":
             from strategies.mcx import MCXHistoricalPipeline
             return MCXHistoricalPipeline(fetcher, MCXInstrumentResolver(), storage, symbol=ctx.symbol)
+        if ctx.exchange == "BSE":
+            from strategies.bse import BSEHistoricalPipeline
+            return BSEHistoricalPipeline(fetcher, BSEActiveResolver(), storage, symbol=ctx.symbol)
         from strategies.nse import NSEHistoricalPipeline
         return NSEHistoricalPipeline(fetcher, NSEActiveResolver(), storage, symbol=ctx.symbol)
 
@@ -160,9 +167,12 @@ class StrategyChain:
 
 def _fetch_last_expired_dt(symbol: str) -> Optional[datetime]:
     """Query Upstox expired expiries API and return the most recent date."""
-    from core.config import NSE_INDEX_KEYS
+    from core.config import NSE_INDEX_KEYS, BSE_INDEX_KEYS
     try:
-        underlying = NSE_INDEX_KEYS.get(symbol.upper(), NSE_INDEX_KEYS["NIFTY"])
+        if symbol.upper() in BSE_INDEX_KEYS:
+            underlying = BSE_INDEX_KEYS[symbol.upper()]
+        else:
+            underlying = NSE_INDEX_KEYS.get(symbol.upper(), NSE_INDEX_KEYS["NIFTY"])
         fetcher    = ExpiredCandleFetcher()
         expiries   = fetcher.fetch_expiries(underlying)
         if expiries:
@@ -189,10 +199,14 @@ def build_pipeline(
         symbol      : 'NIFTY', 'BANKNIFTY', 'CRUDEOIL', etc.
         storage     : configured StorageHandler chain
     """
-    print(f"[StrategyChain] Resolving pipeline for {symbol} on {target_date} (live={live_mode})...")
+    # Force BSE if it's Sensex/Bankex, regardless of what frontend says
+    if symbol.upper() in ["SENSEX", "BANKEX"]:
+        exchange = "BSE"
+
+    print(f"[StrategyChain] Resolving pipeline for {symbol} on {target_date} (live={live_mode}, exchange={exchange})...")
     last_expired = None
-    if exchange == "NSE" and not live_mode:
-        print("[StrategyChain] Fetching last expired date for NSE...")
+    if (exchange == "NSE" or exchange == "BSE") and not live_mode:
+        print(f"[StrategyChain] Fetching last expired date for {exchange}...")
         last_expired = _fetch_last_expired_dt(symbol)
         print(f"[StrategyChain] Last expired date: {last_expired}")
     

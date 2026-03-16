@@ -10,6 +10,11 @@ NSE_INDEX_KEYS: dict[str, str] = {
     "FINNIFTY":  "NSE_INDEX|Nifty Fin Service",
 }
 
+# ── BSE index instrument keys (static) ───────────────────────────────────────
+BSE_INDEX_KEYS: dict[str, str] = {
+    "SENSEX":    "BSE_INDEX|SENSEX",
+}
+
 # ── MCX commodity underlying keys ───────────────────────────────────────────
 MCX_FUT_KEYS: dict[str, str] = {
     "CRUDEOIL":   "MCX_COM|294",
@@ -44,6 +49,7 @@ MCX_MARKET_END   = "23:30"
 # ── Background scheduler hours ───────────────────────────────────────────────
 SCHEDULER_HOURS: dict[str, dict] = {
     "NSE": {"start": "09:15:20", "end": "15:40:00", "prefix": "option"},
+    "BSE": {"start": "09:15:20", "end": "15:40:00", "prefix": "option"},
     "MCX": {"start": "09:15:20", "end": "23:59:00", "prefix": "mcx"},
 }
 
