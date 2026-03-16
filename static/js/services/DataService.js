@@ -28,6 +28,11 @@ class DataService {
         return this._rawData;
     }
 
+    clear() {
+        this._rawData = [];
+        this._currentParams = null;
+    }
+
     async load(params, silent = false) {
         // Simple check: if params haven't changed and not in live mode, maybe skip?
         // But usually we want the server to decide freshness.
@@ -70,13 +75,17 @@ class DataService {
             console.error('[DataService] fetch error:', err);
             if (!silent) alert('Error loading data. Check console.');
         } finally {
-            const isWaiting = loader && loader.textContent.includes("Waiting for data");
-            // If we have actual data now, we are definitely NOT waiting anymore
-            const hasDataNow = this._rawData && this._rawData.length > 0;
+            if (loader) {
+                const isWaitingBanner = loader.classList.contains('waiting');
+                const hasDataNow = this._rawData && this._rawData.length > 0;
 
-            if (loader && (!isWaiting || hasDataNow)) {
-                loader.style.display = 'none';
-                loader.classList.remove('waiting');
+                // Hide if:
+                // 1. Data actually arrived (hasDataNow)
+                // 2. OR it wasn't a "waiting" banner to begin with (regular fetch finished)
+                if (hasDataNow || !isWaitingBanner) {
+                    loader.style.display = 'none';
+                    loader.classList.remove('waiting');
+                }
             }
         }
     }
