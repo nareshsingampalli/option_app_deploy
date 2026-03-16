@@ -70,10 +70,11 @@ class DataService {
             console.error('[DataService] fetch error:', err);
             if (!silent) alert('Error loading data. Check console.');
         } finally {
-            // Only hide the loader if we actually got data or a hard error
-            // (Don't hide if we are in the 'Waiting' state)
             const isWaiting = loader && loader.textContent.includes("Waiting for data");
-            if (loader && !isWaiting) {
+            // If we have actual data now, we are definitely NOT waiting anymore
+            const hasDataNow = this._rawData && this._rawData.length > 0;
+
+            if (loader && (!isWaiting || hasDataNow)) {
                 loader.style.display = 'none';
                 loader.classList.remove('waiting');
             }
