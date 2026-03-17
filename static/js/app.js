@@ -62,6 +62,7 @@ symbolSelector.onChange(({ exchange, symbol }) => {
     
     // Clear old state immediately so user doesn't see stale data
     chartRenderer.clear ? chartRenderer.clear() : null; 
+    dataService.clear(); 
     
     if (isLiveMode) {
         dataService.initWebSocket(exchange, symbol);

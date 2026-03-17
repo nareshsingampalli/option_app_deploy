@@ -146,15 +146,14 @@ def get_option_data():
             is_closed = now_dt > m_end_dt
             
             if is_closed:
+                # One-time Final Fetch:
+                # If market is closed, check if the file on disk was updated AFTER the close.
+                # If not, we need one final fetch to get the complete daily data.
                 file_mtime = datetime.fromtimestamp(os.path.getmtime(csv_path)).replace(tzinfo=now_dt.tzinfo)
-                # If the file on disk was modified AFTER the market end, it's our "final" version.
-                if file_mtime > m_end_dt:
-                    needs_fetch = False 
-                    # print(f"[API] Serving final EOD data from disk for {symbol}.")
+                if file_mtime < m_end_dt:
+                    needs_fetch = True
                 else:
-                    # The file exists but is from during market hours. 
-                    # Fetch one last time to get final data, but only every 30 mins to avoid 429s.
-                    needs_fetch = file_age_s > 1800
+                    needs_fetch = False
             else:
                 # During market hours - 5-min TTL
                 needs_fetch = file_age_s > 300
@@ -183,61 +182,42 @@ def get_option_data():
             pass
 
     if needs_fetch:
-        print(f"[API] Data missing or stale for {date_str}. Triggering fetch...")
-        lock     = _get_fetch_locks().get(symbol)
-        if lock is None:
-             # Make sure we use the same lock dict from scheduler
-             from dashboard.scheduler import get_lock
-             lock = get_lock(symbol)
-             
-        print(f"[API] Acquiring lock for {symbol}...")
-        # Only wait very briefly (e.g. 1 second). If a background fetch is running, 
-        # just fall through and serve the older CSV data immediately to keep UI responsive.
-        acquired = lock.acquire(timeout=1.0)
-        if acquired:
-            print(f"[API] Lock acquired. Checking freshness...")
-            if os.path.exists(csv_path) and time.time() - os.path.getmtime(csv_path) < 60:
-                print("[API] Data already fresh, skipping fetch.")
+        print(f"[API] Data stale/missing for {symbol}. Starting background refresh...")
+        from dashboard.scheduler import get_lock
+        lock = get_lock(symbol)
+        
+        # Try to acquire lock to avoid double-fetching. 
+        # Non-blocking: if a fetch is already running (either from scheduler OR another API call), 
+        # just exit and let the existing fetch finish.
+        if lock.acquire(blocking=False):
+            def bg_fetch_task():
                 try:
-                    lock.release()
-                except RuntimeError:
-                    pass
-            else:
-                def bg_fetch():
-                    with app.app_context():
-                        try:
-                            from storage.db_storage import build_storage_chain
-                            from strategies.handlers import build_pipeline
-                            
-                            print(f"[API-BG] Building pipeline for {exchange}...")
-                            storage  = build_storage_chain()
-                            pipeline = build_pipeline(exchange, date_str, live_mode, symbol, storage)
-
-                            if pipeline:
-                                print(f"[API-BG] Running pipeline...")
-                                pipeline.run(symbol, date_str, time_str)
-                            else:
-                                print(f"[API-BG] Pipeline resolution failed for {date_str}")
-                            
-                            # Notify only clients in the specific symbol room
+                    # Double-check freshness now that we HAVE the lock, 
+                    # in case it finished just as we were acquiring.
+                    if not os.path.exists(csv_path) or (time.time() - os.path.getmtime(csv_path) > 60):
+                        print(f"[API-BG] Running refresh for {symbol}...")
+                        from storage.db_storage import build_storage_chain
+                        from strategies.handlers import build_pipeline
+                        
+                        storage  = build_storage_chain()
+                        pipeline = build_pipeline(exchange, date_str, live_mode, symbol, storage)
+                        if pipeline:
+                            pipeline.run(symbol, date_str, time_str)
+                            # Notify the UI to re-pull the newly saved data
                             socketio.emit("data_updated", 
                                           {"prefix": exchange, "symbol": symbol, "timestamp": datetime.now().isoformat()},
                                           room=symbol)
-                        except Exception as e:
-                            print(f"[API-BG] Fetch error: {e}")
-                            import traceback
-                            traceback.print_exc()
-                        finally:
-                            try:
-                                lock.release()
-                                print(f"[API-BG] Lock released for {symbol}")
-                            except RuntimeError:
-                                pass
-                
-                import threading
-                threading.Thread(target=bg_fetch, daemon=True).start()
+                except Exception as e:
+                    print(f"[API-BG] Fetch error: {e}")
+                finally:
+                    try:
+                        lock.release()
+                    except RuntimeError: pass
+            
+            import threading
+            threading.Thread(target=bg_fetch_task, daemon=True).start()
         else:
-            print(f"[API] Background fetch currently running for {symbol}. Serving existing data...")
+            print(f"[API] Fetch already in progress for {symbol}. Serving existing data...")
 
         if not os.path.exists(csv_path):
             if os.path.exists(meta_path):

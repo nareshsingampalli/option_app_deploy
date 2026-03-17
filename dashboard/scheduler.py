@@ -67,9 +67,6 @@ def _main_scheduler_loop():
         cur_min = now.minute
         active_symbols = get_active_symbols()
         
-        # Only fetch symbols that are actively being watched by a frontend client
-        pass
-
         for symbol in active_symbols:
             if not symbol:
                 continue
