@@ -158,40 +158,55 @@ class ChartRenderer extends UIComponent {
                     });
             }
 
-            // Determine exchange to set sliding window size
+            // Determine exchange and fixed start times
             const isMCX = selectedInstruments.some(s => 
                 ['CRUDEOIL', 'NATURALGAS', 'SILVER', 'GOLD'].some(m => s.includes(m))
             );
             
-            // NSE/BSE: 2 hours (shorter day), MCX: 4 hours (longer day)
-            const windowHours = isMCX ? 4 : 2;
-
-            // Calculate sliding window based on detected exchange
+            // Get today's date from the data
+            const targetDate = rawData[0]?.date.split(' ')[0] || new Date().toISOString().split('T')[0];
+            
+            // Fixed Market Opening (The beginning of the slider)
+            const mStart = isMCX ? `${targetDate} 09:00:00` : `${targetDate} 09:15:00`;
+            
+            // Data Bounds
             const allTimes = traces.flatMap(t => t.x).map(x => new Date(x).getTime());
-            const maxTime = allTimes.length > 0 ? Math.max(...allTimes) : null;
-            const windowMs = windowHours * 60 * 60 * 1000;
+            const maxTime  = allTimes.length > 0 ? Math.max(...allTimes) : null;
+            
+            // Mobile Sliding Window (Initial Zoom: last 2-4 hours)
+            const windowHours = isMCX ? 4 : 2;
+            const windowMs    = windowHours * 60 * 60 * 1000;
             const windowStart = maxTime ? maxTime - windowMs : null;
+            
+            // Ensure zoom doesn't go before market start
+            const effectiveZoomStart = Math.max(new Date(mStart).getTime(), windowStart || 0);
 
             const layout = {
                 margin: { t: 20, r: 20, l: 50, b: 20 },
-                height: 450,
+                height: 480,
                 xaxis: { 
                     title: 'Time',
-                    range: windowStart ? [new Date(windowStart), new Date(maxTime)] : null,
-                    rangeslider: { visible: true, thickness: 0.1 },
+                    // The INITIAL VIEW (last 2-4 hours)
+                    range: maxTime ? [new Date(effectiveZoomStart), new Date(maxTime)] : null,
+                    // The RANGE SLIDER (Starts at opening, ends at latest data)
+                    rangeslider: { 
+                        visible: true, 
+                        thickness: 0.1,
+                        range: [mStart, maxTime ? new Date(maxTime) : null] 
+                    },
                     type: 'date'
                 },
                 yaxis: { title: this._metrics.label(metric) },
                 hovermode: 'x unified',
-                dragmode: 'pan', // Changed to 'pan' so users can slide the chart directly
+                dragmode: 'pan',
                 showlegend: true,
-                legend: { orientation: 'h', y: -0.5 } // Moved further down
+                legend: { orientation: 'h', y: -0.5 }
             };
 
             const config = {
                 responsive: true,
                 displayModeBar: false,
-                scrollZoom: true     // Allow pinch-zoom/scroll-zoom
+                scrollZoom: true
             };
 
             Plotly.newPlot(chartId, traces, layout, config);
