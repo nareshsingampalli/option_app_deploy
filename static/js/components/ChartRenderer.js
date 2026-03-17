@@ -158,17 +158,26 @@ class ChartRenderer extends UIComponent {
                     });
             }
 
-            // Calculate 3-hour window for "sliding" view
+            // Determine exchange to set sliding window size
+            const isMCX = selectedInstruments.some(s => 
+                ['CRUDEOIL', 'NATURALGAS', 'SILVER', 'GOLD'].some(m => s.includes(m))
+            );
+            
+            // NSE/BSE: 2 hours (shorter day), MCX: 4 hours (longer day)
+            const windowHours = isMCX ? 4 : 2;
+
+            // Calculate sliding window based on detected exchange
             const allTimes = traces.flatMap(t => t.x).map(x => new Date(x).getTime());
             const maxTime = allTimes.length > 0 ? Math.max(...allTimes) : null;
-            const threeHoursAgo = maxTime ? maxTime - (3 * 60 * 60 * 1000) : null;
+            const windowMs = windowHours * 60 * 60 * 1000;
+            const windowStart = maxTime ? maxTime - windowMs : null;
 
             const layout = {
-                margin: { t: 20, r: 20, l: 50, b: 20 }, // reduced bottom margin since we have rangeslider
-                height: 450, // Slightly taller for rangeslider
+                margin: { t: 20, r: 20, l: 50, b: 20 },
+                height: 450,
                 xaxis: { 
                     title: 'Time',
-                    range: threeHoursAgo ? [new Date(threeHoursAgo), new Date(maxTime)] : null,
+                    range: windowStart ? [new Date(windowStart), new Date(maxTime)] : null,
                     rangeslider: { visible: true, thickness: 0.1 },
                     type: 'date'
                 },
