@@ -89,9 +89,9 @@ def _main_scheduler_loop():
             end_t   = datetime.strptime(cfg["end"],   "%H:%M:%S").time()
             
             if _secs(start_t) <= _secs(now.time()) <= _secs(end_t):
-                # 5-minute cycle
+                # 3-minute cycle
                 is_startup = (now.hour == 9 and 16 <= now.minute <= 20)
-                is_regular = (now.minute % 5 == 1)
+                is_regular = (now.minute % 3 == 0)
                 
                 if (is_startup or is_regular) and last_fetch_times.get(symbol) != cur_min:
                     threading.Thread(

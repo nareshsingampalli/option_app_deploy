@@ -158,21 +158,31 @@ class ChartRenderer extends UIComponent {
                     });
             }
 
+            // Calculate 3-hour window for "sliding" view
+            const allTimes = traces.flatMap(t => t.x).map(x => new Date(x).getTime());
+            const maxTime = allTimes.length > 0 ? Math.max(...allTimes) : null;
+            const threeHoursAgo = maxTime ? maxTime - (3 * 60 * 60 * 1000) : null;
+
             const layout = {
-                margin: { t: 20, r: 20, l: 50, b: 40 },
-                height: 400,
-                xaxis: { title: 'Time' },
+                margin: { t: 20, r: 20, l: 50, b: 20 }, // reduced bottom margin since we have rangeslider
+                height: 450, // Slightly taller for rangeslider
+                xaxis: { 
+                    title: 'Time',
+                    range: threeHoursAgo ? [new Date(threeHoursAgo), new Date(maxTime)] : null,
+                    rangeslider: { visible: true, thickness: 0.1 },
+                    type: 'date'
+                },
                 yaxis: { title: this._metrics.label(metric) },
                 hovermode: 'x unified',
-                dragmode: false, // Disables the zoom-box on drag, allowing touch for tooltips/prices
+                dragmode: 'pan', // Changed to 'pan' so users can slide the chart directly
                 showlegend: true,
-                legend: { orientation: 'h', y: -0.2 }
+                legend: { orientation: 'h', y: -0.5 } // Moved further down
             };
 
             const config = {
                 responsive: true,
-                displayModeBar: false, // Cleaner UI for mobile
-                scrollZoom: false,     // Prevent accidental zooming on mobile
+                displayModeBar: false,
+                scrollZoom: true     // Allow pinch-zoom/scroll-zoom
             };
 
             Plotly.newPlot(chartId, traces, layout, config);
