@@ -163,15 +163,17 @@ class ChartRenderer extends UIComponent {
                 ['CRUDEOIL', 'NATURALGAS', 'SILVER', 'GOLD'].some(m => s.includes(m))
             );
             
-            // Get today's date from the data
-            const targetDate = rawData[0]?.date.split(' ')[0] || new Date().toISOString().split('T')[0];
+            // Get today's date from the data and normalize to a consistent Date object
+            const firstDateStr = rawData[0]?.date || new Date().toISOString();
+            const targetDate   = firstDateStr.split(' ')[0];
             
             // Fixed Market Opening (The beginning of the slider)
-            const mStart = isMCX ? `${targetDate} 09:00:00` : `${targetDate} 09:15:00`;
+            const mStartObj = isMCX ? new Date(`${targetDate}T09:00:00`) : new Date(`${targetDate}T09:15:00`);
             
             // Data Bounds
             const allTimes = traces.flatMap(t => t.x).map(x => new Date(x).getTime());
             const maxTime  = allTimes.length > 0 ? Math.max(...allTimes) : null;
+            const maxTimeObj = maxTime ? new Date(maxTime) : null;
             
             // Mobile Sliding Window (Initial Zoom: last 2-4 hours)
             const windowHours = isMCX ? 4 : 2;
@@ -179,28 +181,34 @@ class ChartRenderer extends UIComponent {
             const windowStart = maxTime ? maxTime - windowMs : null;
             
             // Ensure zoom doesn't go before market start
-            const effectiveZoomStart = Math.max(new Date(mStart).getTime(), windowStart || 0);
+            const effectiveZoomStart = Math.max(mStartObj.getTime(), windowStart || 0);
 
             const layout = {
-                margin: { t: 20, r: 20, l: 50, b: 20 },
-                height: 480,
+                margin: { t: 30, r: 20, l: 60, b: 60 }, // More padding for bottom slider/legend
+                height: 500, // Taller to prevent overlap
                 xaxis: { 
                     title: 'Time',
-                    // The INITIAL VIEW (last 2-4 hours)
-                    range: maxTime ? [new Date(effectiveZoomStart), new Date(maxTime)] : null,
-                    // The RANGE SLIDER (Starts at opening, ends at latest data)
+                    range: maxTime ? [new Date(effectiveZoomStart), maxTimeObj] : null,
                     rangeslider: { 
                         visible: true, 
                         thickness: 0.1,
-                        range: [mStart, maxTime ? new Date(maxTime) : null] 
+                        range: [mStartObj, maxTimeObj || new Date()] 
                     },
                     type: 'date'
                 },
-                yaxis: { title: this._metrics.label(metric) },
+                yaxis: { 
+                    title: metric === 'spot_price' ? 'Price' : this._metrics.label(metric),
+                    automargin: true 
+                },
                 hovermode: 'x unified',
                 dragmode: 'pan',
                 showlegend: true,
-                legend: { orientation: 'h', y: -0.5 }
+                legend: { 
+                    orientation: 'h', 
+                    yanchor: 'bottom', 
+                    y: 1.02, // Move legend ABOVE the chart to avoid slider overlap entirely
+                    x: 0 
+                }
             };
 
             const config = {
