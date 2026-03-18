@@ -97,14 +97,14 @@ def _main_scheduler_loop():
 
                 if (is_startup or is_regular) and last_fetch_times.get(symbol) != cur_min:
                     # Stagger burst once per minute cycle
+                    # Wait 10s at %3 boundaries: gives Upstox time to finalize the just-closed candle
+                    # Wait 30s at %5 boundaries: avoid API congestion on 5-min peaks
                     if last_delay_min != cur_min:
-                        delay = 0
-                        if now.minute % 3 == 0: delay = 6
-                        if now.minute % 3 == 0 and now.minute % 5 == 0: delay = 30 # Priority to 5-min congestion avoid
+                        delay = 10  # default: wait for Upstox to finalize 3-min candle
+                        if now.minute % 5 == 0: delay = 30  # 5-min congestion avoidance takes priority
                         
-                        if delay > 0:
-                            print(f"[Scheduler] Minute {now.minute} (is_regular={is_regular}); pausing {delay}s before burst...")
-                            time.sleep(delay)
+                        print(f"[Scheduler] Minute {now.minute}: pausing {delay}s before burst (candle finalization)...")
+                        time.sleep(delay)
                         last_delay_min = cur_min
 
                     threading.Thread(

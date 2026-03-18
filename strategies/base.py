@@ -115,7 +115,6 @@ class MarketDataPipeline(ABC):
         any_fallback = getattr(self.fetcher, "used_fallback", False)
 
         for inst in instruments:
-            from core.utils import ist_now
             print(f"[Pipeline] Processing {inst.symbol}...")
             try:
                 df = self.fetcher.get_candles(inst.key, filter_date, expiry_dt=inst.expiry)
