@@ -157,6 +157,11 @@ class ChartRenderer extends UIComponent {
                 const sens = metric.includes('roc') || metric.includes('ratio') ? 0.05 : 10;
                 const padding = Math.max(diff * 0.2, sens);
                 yRange = [p5 - padding, p95 + padding];
+
+                // Ensure non-negative metrics (LTP, Spot, etc.) don't show negative Y-axis
+                if (['ltp', 'spot_price', 'coi_vol_ratio'].includes(metric)) {
+                    yRange[0] = Math.max(0, yRange[0]);
+                }
             }
 
             const layout = {
