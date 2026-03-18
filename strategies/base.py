@@ -116,7 +116,7 @@ class MarketDataPipeline(ABC):
 
         for inst in instruments:
             from core.utils import ist_now
-            print(f"[{ist_now().strftime('%H:%M:%S')}] [Pipeline] Processing {inst.symbol}...")
+            print(f"[Pipeline] Processing {inst.symbol}...")
             try:
                 df = self.fetcher.get_candles(inst.key, filter_date, expiry_dt=inst.expiry)
                 if df is None or df.empty:
