@@ -210,22 +210,59 @@ async function refreshToken() {
     }
 }
 
-// Global exposure for non-JS buttons (if any)
-window.toggleOptionType = (type) => {
-    const btn = document.getElementById(`toggle-${type.toLowerCase()}`);
-    if (btn) btn.classList.toggle('active');
-};
+// ── Instrument Selection State Machine ──────────────────────────────────────
+window.handleSelectorClick = (type) => {
+    const btnId = `btn-${type}`;
+    const btn = document.getElementById(btnId);
+    if (!btn) return;
 
-window.selectInstruments = (type) => {
-    // Attempt to grab current spot price from display for Intraday/Scalping filters
+    const allButtons = document.querySelectorAll('#selector-toggles .btn');
+    
+    // Logic: 
+    // - 'all' and 'none' (Clear) are mutually exclusive to others.
+    // - 'ce', 'pe', 'intraday', 'scalping' are toggles.
+
+    if (type === 'all' || type === 'none') {
+        const isAlreadyActive = btn.classList.contains('active');
+        allButtons.forEach(b => b.classList.remove('active'));
+        if (!isAlreadyActive) btn.classList.add('active');
+    } else {
+        // Deactivate 'all' and 'none' if any other toggle is clicked
+        document.getElementById('btn-all').classList.remove('active');
+        document.getElementById('btn-none').classList.remove('active');
+        
+        // Mutual exclusivity between intraday and scalping
+        if (type === 'intraday') document.getElementById('btn-scalping').classList.remove('active');
+        if (type === 'scalping') document.getElementById('btn-intraday').classList.remove('active');
+
+        btn.classList.toggle('active');
+    }
+
+    // Extract current state
+    const states = {
+        all: document.getElementById('btn-all').classList.contains('active'),
+        none: document.getElementById('btn-none').classList.contains('active'),
+        ce: document.getElementById('btn-ce').classList.contains('active'),
+        pe: document.getElementById('btn-pe').classList.contains('active'),
+        intraday: document.getElementById('btn-intraday').classList.contains('active'),
+        scalping: document.getElementById('btn-scalping').classList.contains('active')
+    };
+
+    // Grab spot price
     const spotEl = document.getElementById('spot-price-display');
     let spotPrice = null;
     if (spotEl && spotEl.textContent) {
         const match = spotEl.textContent.match(/[\d.]+/);
         if (match) spotPrice = parseFloat(match[0]);
     }
-    instrumentSelector.selectAll(type, spotPrice);
+
+    instrumentSelector.applySelection(states, spotPrice);
 };
+
+// Cleanup old global
+delete window.selectInstruments;
+delete window.toggleOptionType;
+
 window.refreshToken = refreshToken;
 
 // ── Start ────────────────────────────────────────────────────────────────────

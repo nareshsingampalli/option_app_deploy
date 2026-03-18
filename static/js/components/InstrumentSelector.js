@@ -40,65 +40,63 @@ class InstrumentSelector extends UIComponent {
         });
     }
 
-    selectAll(type, spotPrice = null) {
-        // Find which toggles are active in UI
-        const ceActive = document.getElementById('toggle-ce')?.classList.contains('active');
-        const peActive = document.getElementById('toggle-pe')?.classList.contains('active');
-
+    applySelection(states, spotPrice = null) {
         const checkboxes = Array.from(this.container.querySelectorAll('.instrument-cb'));
         
-        // Simple filters
-        if (['all', 'none'].includes(type)) {
-            checkboxes.forEach(cb => {
-                const isCE = cb.dataset.type === 'CE';
-                const isPE = cb.dataset.type === 'PE';
-                if ((isCE && !ceActive) || (isPE && !peActive)) return;
+        // Clear all first
+        checkboxes.forEach(cb => cb.checked = false);
 
-                if (type === 'all') cb.checked = true;
-                else if (type === 'none') cb.checked = false;
-            });
-        } 
-        // Complex filters (Intraday/Scalping)
-        else if ((type === 'intraday' || type === 'scalping') && spotPrice) {
+        if (states.all) {
+            checkboxes.forEach(cb => cb.checked = true);
+        } else if (states.none) {
+            // Already cleared
+        } else {
+            const isIntra = states.intraday;
+            const isScalp = states.scalping;
+            // If neither is true, checking All CE/PE should pick ALL strikes of that type.
+            // If either IS true, we use the ATM/OTM/ITM strike count.
+            const isDynamic = isIntra || isScalp;
+            const countMap = isScalp ? { atm: 1, otm: 1, itm: 1 } : { atm: 1, otm: 2, itm: 2 };
+
             // Group by type (CE/PE)
             const groups = {
-                'CE': checkboxes.filter(cb => cb.dataset.type === 'CE' && ceActive),
-                'PE': checkboxes.filter(cb => cb.dataset.type === 'PE' && peActive)
+                'CE': checkboxes.filter(cb => cb.dataset.type === 'CE' && states.ce),
+                'PE': checkboxes.filter(cb => cb.dataset.type === 'PE' && states.pe)
             };
 
-            const countMap = type === 'intraday' ? { atm: 1, otm: 2, itm: 2 } : { atm: 1, otm: 1, itm: 1 };
-
-            // Clear ONLY targeted types first
-            checkboxes.forEach(cb => {
-                if ((cb.dataset.type === 'CE' && ceActive) || (cb.dataset.type === 'PE' && peActive)) {
-                    cb.checked = false;
-                }
-            });
+            // If neither CE nor PE toggle is active, act as if BOTH are active (default)
+            if (!states.ce && !states.pe) {
+                groups.CE = checkboxes.filter(cb => cb.dataset.type === 'CE');
+                groups.PE = checkboxes.filter(cb => cb.dataset.type === 'PE');
+            }
 
             Object.keys(groups).forEach(optType => {
                 const group = groups[optType];
                 if (group.length === 0) return;
 
-                // Sort strikes by distance from spot
-                group.sort((a,b) => Math.abs(parseFloat(a.dataset.strike) - spotPrice) - Math.abs(parseFloat(b.dataset.strike) - spotPrice));
+                if (!isDynamic) {
+                    // Just select the whole group
+                    group.forEach(cb => cb.checked = true);
+                } else if (spotPrice) {
+                    // Select relative to spot
+                    group.sort((a,b) => Math.abs(parseFloat(a.dataset.strike) - spotPrice) - Math.abs(parseFloat(b.dataset.strike) - spotPrice));
 
-                const atm = group[0]; // Nearest strike is ATM
-                if (atm) atm.checked = true;
+                    const atm = group[0]; 
+                    if (atm) atm.checked = true;
 
-                const others = group.slice(1);
-                
-                // Categorize into OTM/ITM based on spot
-                const itmList = others.filter(cb => {
-                    const k = parseFloat(cb.dataset.strike);
-                    return optType === 'CE' ? k < spotPrice : k > spotPrice;
-                });
-                const otmList = others.filter(cb => {
-                    const k = parseFloat(cb.dataset.strike);
-                    return optType === 'CE' ? k > spotPrice : k < spotPrice;
-                });
+                    const others = group.slice(1);
+                    const itmList = others.filter(cb => {
+                        const k = parseFloat(cb.dataset.strike);
+                        return optType === 'CE' ? k < spotPrice : k > spotPrice;
+                    });
+                    const otmList = others.filter(cb => {
+                        const k = parseFloat(cb.dataset.strike);
+                        return optType === 'CE' ? k > spotPrice : k < spotPrice;
+                    });
 
-                itmList.forEach((cb, i) => { if (i < countMap.itm) cb.checked = true; });
-                otmList.forEach((cb, i) => { if (i < countMap.otm) cb.checked = true; });
+                    itmList.forEach((cb, i) => { if (i < countMap.itm) cb.checked = true; });
+                    otmList.forEach((cb, i) => { if (i < countMap.otm) cb.checked = true; });
+                }
             });
         }
         

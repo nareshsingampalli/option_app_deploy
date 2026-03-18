@@ -70,18 +70,14 @@
 
             <!-- Instrument selector -->
             <div>
-                <h2 style="display: flex; justify-content: space-between; align-items: center;">
-                    Instruments
-                    <div class="exchange-toggle" style="width: 100px; height: 30px;">
-                        <button id="toggle-ce" class="exch-btn active" onclick="toggleOptionType('CE')">CE</button>
-                        <button id="toggle-pe" class="exch-btn active" onclick="toggleOptionType('PE')">PE</button>
-                    </div>
-                </h2>
-                <div class="btn-group">
-                    <button class="btn" onclick="selectInstruments('all')">All</button>
-                    <button class="btn" onclick="selectInstruments('intraday')">Intraday</button>
-                    <button class="btn" onclick="selectInstruments('scalping')">Scalping</button>
-                    <button class="btn" onclick="selectInstruments('none')">Clear</button>
+                <h2>Instruments</h2>
+                <div class="btn-group" id="selector-toggles">
+                    <button id="btn-all" class="btn" onclick="handleSelectorClick('all')">All</button>
+                    <button id="btn-ce" class="btn" onclick="handleSelectorClick('ce')">All CE</button>
+                    <button id="btn-pe" class="btn" onclick="handleSelectorClick('pe')">All PE</button>
+                    <button id="btn-intraday" class="btn" onclick="handleSelectorClick('intraday')">Intraday</button>
+                    <button id="btn-scalping" class="btn" onclick="handleSelectorClick('scalping')">Scalping</button>
+                    <button id="btn-none" class="btn" onclick="handleSelectorClick('none')">Clear</button>
                 </div>
                 <div class="scrollable-list" id="instrument-list">
                     <!-- Populated by InstrumentSelector.js -->
