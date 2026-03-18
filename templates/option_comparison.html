@@ -70,17 +70,17 @@
 
             <!-- Instrument selector -->
             <div>
-                <h2>Instruments</h2>
+                <h2 style="display: flex; justify-content: space-between; align-items: center;">
+                    Instruments
+                    <div class="exchange-toggle" style="width: 100px; height: 30px;">
+                        <button id="toggle-ce" class="exch-btn active" onclick="toggleOptionType('CE')">CE</button>
+                        <button id="toggle-pe" class="exch-btn active" onclick="toggleOptionType('PE')">PE</button>
+                    </div>
+                </h2>
                 <div class="btn-group">
                     <button class="btn" onclick="selectInstruments('all')">All</button>
-                    <button class="btn" onclick="selectInstruments('ce')">All CE</button>
-                    <button class="btn" onclick="selectInstruments('pe')">All PE</button>
                     <button class="btn" onclick="selectInstruments('intraday')">Intraday</button>
-                    <button class="btn" onclick="selectInstruments('intraday_ce')">Intra CE</button>
-                    <button class="btn" onclick="selectInstruments('intraday_pe')">Intra PE</button>
                     <button class="btn" onclick="selectInstruments('scalping')">Scalping</button>
-                    <button class="btn" onclick="selectInstruments('scalping_ce')">Scalp CE</button>
-                    <button class="btn" onclick="selectInstruments('scalping_pe')">Scalp PE</button>
                     <button class="btn" onclick="selectInstruments('none')">Clear</button>
                 </div>
                 <div class="scrollable-list" id="instrument-list">

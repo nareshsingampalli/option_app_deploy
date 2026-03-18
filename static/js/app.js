@@ -211,6 +211,11 @@ async function refreshToken() {
 }
 
 // Global exposure for non-JS buttons (if any)
+window.toggleOptionType = (type) => {
+    const btn = document.getElementById(`toggle-${type.toLowerCase()}`);
+    if (btn) btn.classList.toggle('active');
+};
+
 window.selectInstruments = (type) => {
     // Attempt to grab current spot price from display for Intraday/Scalping filters
     const spotEl = document.getElementById('spot-price-display');

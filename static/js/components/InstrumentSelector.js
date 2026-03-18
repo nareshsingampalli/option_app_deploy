@@ -41,42 +41,46 @@ class InstrumentSelector extends UIComponent {
     }
 
     selectAll(type, spotPrice = null) {
+        // Find which toggles are active in UI
+        const ceActive = document.getElementById('toggle-ce')?.classList.contains('active');
+        const peActive = document.getElementById('toggle-pe')?.classList.contains('active');
+
         const checkboxes = Array.from(this.container.querySelectorAll('.instrument-cb'));
         
         // Simple filters
-        if (['all', 'none', 'ce', 'pe'].includes(type)) {
+        if (['all', 'none'].includes(type)) {
             checkboxes.forEach(cb => {
+                const isCE = cb.dataset.type === 'CE';
+                const isPE = cb.dataset.type === 'PE';
+                if ((isCE && !ceActive) || (isPE && !peActive)) return;
+
                 if (type === 'all') cb.checked = true;
                 else if (type === 'none') cb.checked = false;
-                else if (type === 'ce') cb.checked = cb.dataset.type === 'CE';
-                else if (type === 'pe') cb.checked = cb.dataset.type === 'PE';
             });
         } 
         // Complex filters (Intraday/Scalping)
-        else if ((type.startsWith('intraday') || type.startsWith('scalping')) && spotPrice) {
+        else if ((type === 'intraday' || type === 'scalping') && spotPrice) {
             // Group by type (CE/PE)
             const groups = {
-                'CE': checkboxes.filter(cb => cb.dataset.type === 'CE'),
-                'PE': checkboxes.filter(cb => cb.dataset.type === 'PE')
+                'CE': checkboxes.filter(cb => cb.dataset.type === 'CE' && ceActive),
+                'PE': checkboxes.filter(cb => cb.dataset.type === 'PE' && peActive)
             };
 
-            const isScalp = type.startsWith('scalping');
-            const targetOpt = type.endsWith('_ce') ? 'CE' : (type.endsWith('_pe') ? 'PE' : null);
-            const countMap = isScalp ? { atm: 1, otm: 1, itm: 1 } : { atm: 1, otm: 2, itm: 2 };
+            const countMap = type === 'intraday' ? { atm: 1, otm: 2, itm: 2 } : { atm: 1, otm: 1, itm: 1 };
 
-            // Clear all first if it's a specific select
-            checkboxes.forEach(cb => cb.checked = false);
+            // Clear ONLY targeted types first
+            checkboxes.forEach(cb => {
+                if ((cb.dataset.type === 'CE' && ceActive) || (cb.dataset.type === 'PE' && peActive)) {
+                    cb.checked = false;
+                }
+            });
 
             Object.keys(groups).forEach(optType => {
-                if (targetOpt && optType !== targetOpt) return;
                 const group = groups[optType];
                 if (group.length === 0) return;
 
                 // Sort strikes by distance from spot
                 group.sort((a,b) => Math.abs(parseFloat(a.dataset.strike) - spotPrice) - Math.abs(parseFloat(b.dataset.strike) - spotPrice));
-
-                // Clear all first
-                group.forEach(cb => cb.checked = false);
 
                 const atm = group[0]; // Nearest strike is ATM
                 if (atm) atm.checked = true;
@@ -93,7 +97,6 @@ class InstrumentSelector extends UIComponent {
                     return optType === 'CE' ? k > spotPrice : k < spotPrice;
                 });
 
-                // Re-sort ITM/OTM lists by closeness to spot (already mostly sorted by distance)
                 itmList.forEach((cb, i) => { if (i < countMap.itm) cb.checked = true; });
                 otmList.forEach((cb, i) => { if (i < countMap.otm) cb.checked = true; });
             });
