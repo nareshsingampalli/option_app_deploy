@@ -104,9 +104,10 @@ class DataService {
 
     initWebSocket(prefix, symbol) {
         this._currentSymbol = symbol;
+        this._currentPrefix = prefix;
         if (this.socket && this.socket.connected) {
             console.log("[DataService] WS Re-joining room:", symbol);
-            this.socket.emit("join_symbol", { symbol: symbol });
+            this.socket.emit("join_symbol", { symbol: symbol, exchange: prefix });
             return;
         }
 
@@ -114,7 +115,7 @@ class DataService {
             this.socket = io();
             this.socket.on('connect', () => {
                 console.log("[DataService] WS Connected. Joining:", this._currentSymbol);
-                this.socket.emit("join_symbol", { symbol: this._currentSymbol });
+                this.socket.emit("join_symbol", { symbol: this._currentSymbol, exchange: this._currentPrefix });
             });
 
             this.socket.on('data_updated', (data) => {
@@ -126,6 +127,39 @@ class DataService {
                     if (params) this.load(params, true);
                 }
             });
+
+            // ── Rejoining client: a fetch is already in progress server-side ──
+            this.socket.on('data_fetching', (data) => {
+                console.log(`[DataService] Server: fetch in progress for ${data.symbol}`);
+                const loader = document.getElementById('loading');
+                if (loader) {
+                    loader.textContent = data.message || `Fetching latest data for ${data.symbol}\u2026`;
+                    loader.style.display = 'flex';
+                    loader.classList.add('waiting');
+                }
+            });
+
+            // ── Rejoining client: market is closed / weekend / holiday ─────────
+            this.socket.on('market_status', (data) => {
+                console.log(`[DataService] Server market_status: ${data.status} for ${data.symbol}`);
+                const loader = document.getElementById('loading');
+
+                // If we already have data loaded, market_status is just informational — don't interrupt
+                if (this._rawData && this._rawData.length > 0) {
+                    console.log('[DataService] Ignoring market_status — already have data.');
+                    return;
+                }
+
+                const msg = data.message || 'Market is currently closed.';
+                if (loader) {
+                    loader.textContent = msg;
+                    loader.style.display = 'flex';
+                    loader.classList.add('waiting');
+                }
+                // Also show a non-blocking notice if the helper exists
+                if (window.showNotice) window.showNotice(msg);
+            });
+
         } catch (e) {
             console.error("[DataService] WS Init failed", e);
         }

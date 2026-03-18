@@ -16,6 +16,7 @@ from flask_socketio import join_room, leave_room, rooms
 
 from dashboard import app, socketio
 from core.utils import ist_now
+from core.config import SCHEDULER_HOURS, NSE_INDEX_KEYS, MCX_FUT_KEYS
 
 
 def _get_fetch_locks():
@@ -316,6 +317,7 @@ def handle_disconnect():
 def handle_join_symbol(data):
     sid = request.sid
     symbol = data.get("symbol", "").upper()
+    exchange = data.get("exchange", "").upper()  # e.g. "NSE", "MCX", "BSE"
     if not symbol:
         return
 
@@ -327,6 +329,148 @@ def handle_join_symbol(data):
 
     join_room(symbol)
     print(f"[WS] Client {sid} joined room: {symbol}")
+
+    # ── Immediately serve the most recently available data on rejoin ──────────
+    # After a long absence (e.g. phone switch tabs), the client missed data_updated
+    # events. Instead of waiting up to 3 min for the next scheduler cycle, we
+    # check the state RIGHT NOW and inform the client immediately.
+    _notify_rejoining_client(sid, symbol, exchange)
+
+
+def _notify_rejoining_client(sid: str, symbol: str, exchange: str):
+    """
+    Immediately tell a rejoining client what data is available.
+
+    Possible outcomes (emitted only to the rejoining client via `room=sid`):
+      1. data_updated   — fresh data exists on disk → client re-fetches normally
+      2. data_fetching  — a fetch is in progress right now → client shows spinner
+      3. market_status  — market is closed / holiday / weekend → client shows message
+    """
+    from core.utils import get_last_trading_day
+    from dashboard.scheduler import _fetch_locks, _locks_lock
+
+    now = ist_now()
+    today_str = now.strftime("%Y-%m-%d")
+
+    # ── Resolve exchange if caller didn't send it ─────────────────────────────
+    sym_upper = symbol.upper()
+    if not exchange:
+        if sym_upper in NSE_INDEX_KEYS or sym_upper in {"NIFTY", "BANKNIFTY", "FINNIFTY"}:
+            exchange = "NSE"
+        elif sym_upper in MCX_FUT_KEYS or sym_upper in {"CRUDEOIL", "NATURALGAS", "SILVER", "GOLD"}:
+            exchange = "MCX"
+        elif sym_upper in {"SENSEX", "BANKEX"}:
+            exchange = "BSE"
+        else:
+            exchange = "NSE"  # safe default
+
+    # ── Determine market hours for this exchange ──────────────────────────────
+    cfg = SCHEDULER_HOURS.get(exchange, SCHEDULER_HOURS["NSE"])
+    start_t = datetime.strptime(cfg["start"], "%H:%M:%S").time()
+    end_t   = datetime.strptime(cfg["end"],   "%H:%M:%S").time()
+    now_t   = now.time()
+
+    def secs(t):
+        return t.hour * 3600 + t.minute * 60 + t.second
+
+    market_open = secs(start_t) <= secs(now_t) <= secs(end_t)
+
+    # ── Check for the data file on disk ──────────────────────────────────────
+    trading_day = get_last_trading_day(now).strftime("%Y-%m-%d")
+    is_trading_day = (trading_day == today_str)  # False on weekends
+
+    prefix   = "mcx" if exchange == "MCX" else "option"
+    dir_name = "mcx_data" if exchange == "MCX" else "nse_data"
+    sym_lc   = symbol.lower()
+    csv_path  = os.path.join(os.getcwd(), dir_name, f"{prefix}_{sym_lc}_tabular_{trading_day}.csv")
+    meta_path = os.path.join(os.getcwd(), dir_name, f"{prefix}_{sym_lc}_meta_{trading_day}.json")
+
+    file_exists = os.path.exists(csv_path)
+    file_age_s  = (time.time() - os.path.getmtime(csv_path)) if file_exists else None
+
+    # ── Check if a fetch is currently running for this symbol ─────────────────
+    # IMPORTANT: The acquire() must happen INSIDE _locks_lock so that concurrent
+    # rejoining clients all observe the scheduler lock atomically. Without this,
+    # Client A acquires the lock to check, and Clients B/C (racing concurrently)
+    # see the lock held by A and incorrectly think a fetch is in progress.
+    fetch_in_progress = False
+    with _locks_lock:
+        lock = _fetch_locks.get(symbol)
+        if lock is not None:
+            if lock.acquire(blocking=False):
+                # Lock was free → no fetch in progress; release it right away
+                lock.release()
+                fetch_in_progress = False
+            else:
+                # Lock is held by the scheduler → a real fetch is running
+                fetch_in_progress = True
+
+    print(f"[WS] Rejoin check for {sid}/{symbol}: "
+          f"market_open={market_open}, is_trading_day={is_trading_day}, "
+          f"file_exists={file_exists}, age={file_age_s:.0f}s" if file_age_s is not None
+          else f"[WS] Rejoin check for {sid}/{symbol}: "
+               f"market_open={market_open}, is_trading_day={is_trading_day}, "
+               f"file_exists={file_exists}, age=N/A")
+
+    # ── Decision tree ─────────────────────────────────────────────────────────
+    if fetch_in_progress:
+        # A scheduler/API fetch is already running → tell the client to wait
+        socketio.emit("data_fetching",
+                      {"symbol": symbol, "exchange": exchange,
+                       "message": f"Fetching latest data for {symbol}…"},
+                      room=sid)
+        print(f"[WS] Told {sid} that fetch is in progress for {symbol}.")
+        return
+
+    if file_exists:
+        # Fresh data is on disk — send data_updated so the client re-polls /api/option-data
+        socketio.emit("data_updated",
+                      {"symbol": symbol, "prefix": exchange,
+                       "timestamp": datetime.fromtimestamp(
+                           os.path.getmtime(csv_path)).isoformat()},
+                      room=sid)
+        print(f"[WS] Sent data_updated to {sid} for {symbol} "
+              f"(file age {file_age_s:.0f}s).")
+        return
+
+    # No file yet — explain why
+    if not is_trading_day:
+        # Weekend
+        socketio.emit("market_status",
+                      {"symbol": symbol, "exchange": exchange,
+                       "status": "weekend",
+                       "message": f"Markets are closed today (weekend). "
+                                  f"Last trading day: {trading_day}."},
+                      room=sid)
+        print(f"[WS] Told {sid} market is closed (weekend) for {symbol}.")
+    elif not market_open:
+        # Weekday but outside trading hours (pre-market or post-market)
+        market_end_str = cfg["end"][:5]
+        market_start_str = cfg["start"][:5]
+        if secs(now_t) < secs(start_t):
+            message = (f"Market opens at {market_start_str} IST. "
+                       f"Historical data will load once trading begins.")
+            status = "pre_market"
+        else:
+            message = (f"Market closed at {market_end_str} IST. "
+                       f"No data file found for {symbol} today ({trading_day}).")
+            status = "post_market"
+        socketio.emit("market_status",
+                      {"symbol": symbol, "exchange": exchange,
+                       "status": status, "message": message},
+                      room=sid)
+        print(f"[WS] Told {sid} market_status={status} for {symbol}.")
+    else:
+        # Market is open but data hasn't been fetched yet — it may be a holiday
+        # or the very first fetch of the day is pending. Inform the client.
+        socketio.emit("market_status",
+                      {"symbol": symbol, "exchange": exchange,
+                       "status": "fetching_initial",
+                       "message": f"Market is open but initial data for {symbol} "
+                                  f"is being fetched. Please wait…"},
+                      room=sid)
+        print(f"[WS] Told {sid} initial fetch pending for {symbol}.")
+
 
 def get_active_symbols():
     """Returns a list of symbols currently being watched by at least one client."""
