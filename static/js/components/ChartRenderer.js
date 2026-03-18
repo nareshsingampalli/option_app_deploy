@@ -156,21 +156,23 @@ class ChartRenderer extends UIComponent {
             const windowMs = 3 * 60 * 60 * 1000;
             const viewStart = Math.max(mStartObj.getTime(), maxTime - windowMs);
 
-            // Focused Y-Axis Range logic (Focus on 10th-90th percentile to ignore extremes)
+            // Robust Y-Axis Range logic
             let yRange = null;
-            const allY = traces.flatMap(t => t.y).filter(v => v !== null && !isNaN(v));
-            if (allY.length > 5) {
-                const sortedY = allY.sort((a, b) => a - b);
-                const p10 = sortedY[Math.floor(sortedY.length * 0.10)];
-                const p90 = sortedY[Math.floor(sortedY.length * 0.90)];
-                const diff = p90 - p10;
-
-                // Sensitivity handles near-flat lines
+            const allY = traces.flatMap(t => t.y).filter(v => typeof v === 'number' && !isNaN(v));
+            if (allY.length > 1) {
+                let min, max;
+                if (allY.length > 10) {
+                    const sortedY = [...allY].sort((a, b) => a - b);
+                    min = sortedY[Math.floor(sortedY.length * 0.10)];
+                    max = sortedY[Math.floor(sortedY.length * 0.90)];
+                } else {
+                    min = Math.min(...allY);
+                    max = Math.max(...allY);
+                }
+                const diff = max - min;
                 const sens = metric.includes('roc') || metric.includes('ratio') ? 0.05 : 10;
                 const padding = Math.max(diff * 0.3, sens);
-                yRange = [p10 - padding, p90 + padding];
-
-                // Ensure non-negative metrics (LTP, Spot, etc.) don't show negative Y-axis
+                yRange = [min - padding, max + padding];
                 if (['ltp', 'spot_price', 'coi_vol_ratio'].includes(metric)) {
                     yRange[0] = Math.max(0, yRange[0]);
                 }
@@ -188,14 +190,15 @@ class ChartRenderer extends UIComponent {
                     type: 'date',
                     tickformat: '%H:%M',
                     hoverformat: '%H:%M',
-                    title: '' // Explicitly remove "Click to enter X axis title"
+                    title: ''
                 },
                 yaxis: {
                     title: this._metrics.label(metric),
                     automargin: true,
                     fixedrange: false,
                     range: yRange,
-
+                    tickformat: '.2f',
+                    hoverformat: '.2f'
                 },
                 hovermode: 'x unified',
                 dragmode: 'pan',
