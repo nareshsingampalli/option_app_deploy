@@ -73,12 +73,14 @@ class ExpiredCandleFetcher(BaseCandleFetcher):
 
     # ── Unified interface ────────────────────────────────────────────────────
     def get_candles(self, instrument_key: str, date_str: str, expiry_dt=None) -> pd.DataFrame | None:
-        """Appends expiry suffix to key if missing, then fetches 5-min candles."""
+        """Appends expiry suffix to key if missing, then fetches candles."""
         key = instrument_key
         if key.count("|") < 2 and expiry_dt is not None:
             key = f"{key}|{expiry_dt.strftime('%d-%m-%Y')}"
-        print(f"[ExpiredFetcher] Fetching expired candles: key={key}, date={date_str}")
-        return self.fetch_candle_data(key, "5minute", date_str, date_str)
+        
+        interval_str = f"{self.interval}minute"
+        print(f"[ExpiredFetcher] Fetching expired candles: key={key}, date={date_str}, interval={interval_str}")
+        return self.fetch_candle_data(key, interval_str, date_str, date_str)
 
     def get_spot_candles(self, spot_key: str, date_str: str) -> pd.DataFrame | None:
         """Spot/index data is NOT available via expired API — callers should use HistoricalFetcher."""
