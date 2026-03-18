@@ -53,12 +53,16 @@ dataService.subscribe((records, isInitial) => {
             const instrumentInfo = symbols.map(sym => {
                 const row = records.find(r => r.symbol === sym);
                 let label = sym;
+                let strike = null;
+                let type = null;
                 if (row && row.strike && row.option_type) {
                     const baseMatch = sym.match(/^[A-Z]+/);
                     const baseSym = baseMatch ? baseMatch[0] : '';
                     label = `${baseSym} ${row.strike} ${row.option_type}`;
+                    strike = row.strike;
+                    type = row.option_type;
                 }
-                return { symbol: sym, label: label };
+                return { symbol: sym, label: label, strike: strike, type: type };
             });
             if (instrumentInfo.length > 0) {
                 instrumentSelector.render(instrumentInfo);
@@ -207,7 +211,16 @@ async function refreshToken() {
 }
 
 // Global exposure for non-JS buttons (if any)
-window.selectInstruments = (type) => instrumentSelector.selectAll(type);
+window.selectInstruments = (type) => {
+    // Attempt to grab current spot price from display for Intraday/Scalping filters
+    const spotEl = document.getElementById('spot-price-display');
+    let spotPrice = null;
+    if (spotEl && spotEl.textContent) {
+        const match = spotEl.textContent.match(/[\d.]+/);
+        if (match) spotPrice = parseFloat(match[0]);
+    }
+    instrumentSelector.selectAll(type, spotPrice);
+};
 window.refreshToken = refreshToken;
 
 // ── Start ────────────────────────────────────────────────────────────────────
