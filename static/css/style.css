@@ -120,11 +120,19 @@ input:checked+.slider-toggle:before {
 }
 
 .scrollable-list {
-    max-height: 200px;
+    max-height: 250px;
     overflow-y: auto;
     border: 1px solid #eee;
     padding: 5px;
     border-radius: 4px;
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none;  /* IE and Edge */
+}
+
+.scrollable-list::-webkit-scrollbar,
+.sidebar::-webkit-scrollbar,
+.main-content::-webkit-scrollbar {
+    display: none; /* Chrome, Safari and Opera */
 }
 
 .btn-group {
