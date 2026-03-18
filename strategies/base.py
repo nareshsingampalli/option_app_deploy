@@ -170,8 +170,8 @@ class MarketDataPipeline(ABC):
             """
             return NormalizationFactory.get_strategy(strategy).process(series, **kwargs)
 
-        df["roc_oi"]         = process_roc(df["oi"])
-        df["roc_volume"]     = process_roc(df["volume"])
+        df["roc_oi"]         = process_roc(df["oi"], strategy='soft_clip')
+        df["roc_volume"]     = process_roc(df["volume"], strategy='soft_clip')
         # Optimal strategy for ROC IV: 'soft_clip' squashes spikes while keeping neg/pos balance
         df["roc_iv"]         = process_roc(df["iv"], strategy='soft_clip', mask_series=df["iv"], mask_threshold=0.05)
         
