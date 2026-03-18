@@ -14,7 +14,8 @@ import pandas as pd
 import upstox_client
 from upstox_client.rest import ApiException
 
-from core.config import ConfigurationError, CANDLE_INTERVAL_MINUTES
+from core.config import CANDLE_INTERVAL_MINUTES
+from core.exceptions import ConfigurationError
 
 
 class BaseCandleFetcher(ABC):
