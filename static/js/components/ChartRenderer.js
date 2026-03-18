@@ -13,14 +13,24 @@ class ChartRenderer extends UIComponent {
         for (let i = 0; i < symbol.length; i++) {
             hash = symbol.charCodeAt(i) + ((hash << 5) - hash);
         }
+        const absHash = Math.abs(hash);
         const isCE = symbol.includes('CE');
         const isPE = symbol.includes('PE');
+        
         if (isCE) {
-            const l = 25 + (Math.abs(hash) % 40);
-            return { color: `hsl(120, 100%, ${l}%)`, dash: 'solid' };
+            // Broad hue range: 85 (yellow-green) to 155 (spring green)
+            const h = 85 + (absHash % 71);
+            // Saturation: 60 to 100
+            const s = 60 + (absHash % 41);
+            // Lightness: 30 to 65
+            const l = 30 + (absHash % 36);
+            return { color: `hsl(${h}, ${s}%, ${l}%)`, dash: 'solid' };
         } else if (isPE) {
-            const l = 35 + (Math.abs(hash) % 30);
-            return { color: `hsl(0, 100%, ${l}%)`, dash: 'dash' };
+            // Broad hue range: 340 (pinks) to 30 (oranges)
+            const h = (340 + (absHash % 51)) % 360; 
+            const s = 60 + (absHash % 41);
+            const l = 35 + (absHash % 36);
+            return { color: `hsl(${h}, ${s}%, ${l}%)`, dash: 'dash' };
         }
         return { color: '#888888', dash: 'solid' };
     }
@@ -177,24 +187,14 @@ class ChartRenderer extends UIComponent {
                     rangeslider: { visible: true, thickness: 0.1, range: [mStartObj, maxTimeObj] },
                     type: 'date',
                     tickformat: '%H:%M',
-                    hoverformat: '%H:%M'
+                    hoverformat: '%H:%M',
+                    title: '' // Explicitly remove "Click to enter X axis title"
                 },
                 yaxis: { 
                     title: this._metrics.label(metric),
                     automargin: true,
                     fixedrange: false,
                     range: yRange
-                },
-                xaxis: { 
-                    range: [new Date(viewStart), maxTimeObj],
-                    minallowed: mStartObj,
-                    maxallowed: maxTimeObj,
-                    autorange: false,
-                    rangeslider: { visible: true, thickness: 0.1, range: [mStartObj, maxTimeObj] },
-                    type: 'date',
-                    tickformat: '%H:%M',
-                    hoverformat: '%H:%M',
-                    title: '' // Explicitly remove "Click to enter X axis title"
                 },
                 hovermode: 'x unified',
                 dragmode: 'pan',
