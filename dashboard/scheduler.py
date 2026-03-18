@@ -92,6 +92,9 @@ def _main_scheduler_loop():
             if _secs(start_t) <= _secs(now.time()) <= _secs(end_t):
                 # 3-minute cycle
                 # 3-minute cycle logic
+                is_startup = (now.hour == 9 and 16 <= now.minute <= 20)
+                is_regular = (now.minute % 3 == 0)
+
                 if (is_startup or is_regular) and last_fetch_times.get(symbol) != cur_min:
                     # Stagger burst once per minute cycle
                     if last_delay_min != cur_min:
