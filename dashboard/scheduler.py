@@ -92,14 +92,16 @@ def _main_scheduler_loop():
             if _secs(start_t) <= _secs(now.time()) <= _secs(end_t):
                 # 3-minute cycle
                 # 3-minute cycle logic
-                is_startup = (now.hour == 9 and 16 <= now.minute <= 20)
-                is_regular = (now.minute % 3 == 0)
-
                 if (is_startup or is_regular) and last_fetch_times.get(symbol) != cur_min:
-                    # If it's a multiple of 5, wait 30 seconds once for this minute batch
-                    if now.minute % 5 == 0 and last_delay_min != cur_min:
-                        print(f"[Scheduler] Multiple of 5 detected ({now.minute}); pausing 30s before burst...")
-                        time.sleep(30)
+                    # Stagger burst once per minute cycle
+                    if last_delay_min != cur_min:
+                        delay = 0
+                        if now.minute % 3 == 0: delay = 6
+                        if now.minute % 3 == 0 and now.minute % 5 == 0: delay = 30 # Priority to 5-min congestion avoid
+                        
+                        if delay > 0:
+                            print(f"[Scheduler] Minute {now.minute} (is_regular={is_regular}); pausing {delay}s before burst...")
+                            time.sleep(delay)
                         last_delay_min = cur_min
 
                     threading.Thread(
