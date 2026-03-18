@@ -103,6 +103,18 @@ class ChartRenderer extends UIComponent {
                             line: { dash, width: 2, color }
                         };
                     });
+
+                // Group: CE first, then PE. Sort by max value (high) descending within groups
+                traces.sort((a, b) => {
+                    const aCE = a.name.includes('CE');
+                    const bCE = b.name.includes('CE');
+                    if (aCE && !bCE) return -1;
+                    if (!aCE && bCE) return 1;
+
+                    const aMax = Math.max(...a.y.filter(v => v !== null && !isNaN(v)), -Infinity);
+                    const bMax = Math.max(...b.y.filter(v => v !== null && !isNaN(v)), -Infinity);
+                    return bMax - aMax; 
+                });
             }
 
             // Filter Traces to TODAY only
@@ -157,17 +169,29 @@ class ChartRenderer extends UIComponent {
                     fixedrange: false,
                     range: yRange
                 },
+                xaxis: { 
+                    range: [new Date(viewStart), maxTimeObj],
+                    minallowed: mStartObj,
+                    maxallowed: maxTimeObj,
+                    autorange: false,
+                    rangeslider: { visible: true, thickness: 0.1, range: [mStartObj, maxTimeObj] },
+                    type: 'date',
+                    tickformat: '%H:%M',
+                    hoverformat: '%H:%M',
+                    title: '' // Explicitly remove "Click to enter X axis title"
+                },
                 hovermode: 'x unified',
                 dragmode: 'pan',
-                showlegend: true,
+                showlegend: false,
                 legend: { orientation: 'h', y: -0.4, x: 0 }
             };
 
             const config = {
                 responsive: true,
-                displayModeBar: false,
+                displayModeBar: true, // Shows zoom/pan/autoscale buttons
                 scrollZoom: true,
-                editable: true // Allows axis dragging
+                editable: false, // Disables the "Click to enter" placeholders
+                doubleClick: 'reset+autosize' // Double-tap to reset view
             };
 
             Plotly.newPlot(chartId, traces, layout, config);

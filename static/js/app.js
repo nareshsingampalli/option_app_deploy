@@ -15,7 +15,25 @@ const chartRenderer = new ChartRenderer('charts-area', metricSelector);
 // ── State ────────────────────────────────────────────────────────────────────
 let isLiveMode = false;
 let refreshInterval = null;
-let currentRenderedSymbol = null; // Track which symbol's instruments are currently in the list
+let currentRenderedSymbol = null; 
+
+// ── Notification Helper ─────────────────────────────────────────────────────
+function showNotice(message, duration = 5000) {
+    const loader = document.getElementById('loading');
+    if (!loader) return;
+    
+    loader.textContent = message;
+    loader.style.display = 'flex';
+    loader.classList.add('waiting');
+    
+    // Clear after duration
+    setTimeout(() => {
+        if (loader.classList.contains('waiting') && loader.textContent === message) {
+            loader.style.display = 'none';
+            loader.classList.remove('waiting');
+        }
+    }, duration);
+}
 
 // ── Wiring: Data → UI ────────────────────────────────────────────────────────
 dataService.subscribe((records, isInitial) => {
@@ -118,7 +136,7 @@ datePicker.addEventListener('change', () => {
         const d = new Date(dateVal);
         const day = d.getUTCDay(); // UTC because YYYY-MM-DD input is treated as UTC midnight
         if (day === 0 || day === 6) {
-            alert(`The selected date (${dateVal}) is a trading holiday (Weekend). No data will be fetched.`);
+            showNotice(`The selected date (${dateVal}) is a trading holiday (Weekend). No data will be fetched.`);
         }
     }
     fetchData();
@@ -132,13 +150,33 @@ document.getElementById('time-slider').addEventListener('change', () => {
     fetchData();
 });
 
+function isMarketOpen(exchange = 'NSE') {
+    const now = new Date();
+    const istTime = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+    const day = istTime.getDay();
+    const hour = istTime.getHours();
+    const min = istTime.getMinutes();
+    const timeVal = hour * 100 + min;
+
+    // Weekend Check
+    if (day === 0 || day === 6) return false;
+
+    // Hours Check
+    if (exchange === 'NSE') {
+        return (timeVal >= 915 && timeVal <= 1530);
+    } else if (exchange === 'MCX') {
+        return (timeVal >= 900 && timeVal <= 2330);
+    }
+    return false;
+}
+
 liveToggle.addEventListener('change', () => {
     isLiveMode = liveToggle.checked;
+    const exchange = symbolSelector.exchange || 'NSE';
 
-    // Check for weekends (0 = Sunday, 6 = Saturday)
-    const day = new Date().getDay();
-    if (isLiveMode && (day === 0 || day === 6)) {
-        alert("Today is a trading holiday (Weekend). Live mode is unavailable.");
+    if (isLiveMode && !isMarketOpen(exchange)) {
+        const range = exchange === 'NSE' ? '09:15 AM - 03:30 PM' : '09:00 AM - 11:30 PM';
+        showNotice(`Market is closed for ${exchange}. Live mode is only available Mon-Fri, ${range} IST.`);
         liveToggle.checked = false;
         isLiveMode = false;
         return;
@@ -156,8 +194,6 @@ liveToggle.addEventListener('change', () => {
     }
 });
 
-
-
 document.getElementById('update-charts-btn').addEventListener('click', fetchData);
 
 async function refreshToken() {
@@ -174,31 +210,14 @@ async function refreshToken() {
 window.selectInstruments = (type) => instrumentSelector.selectAll(type);
 window.refreshToken = refreshToken;
 
-// ── Auto-Live Logic ──────────────────────────────────────────────────────────
-function shouldAutoStartLive() {
-    const now = new Date();
-    const istTime = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
-    const day = istTime.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
-    const hour = istTime.getHours();
-    const min = istTime.getMinutes();
-    const timeVal = hour * 100 + min;
-
-    // Mon-Fri and after 09:15 AM IST
-    return (day >= 1 && day <= 5 && timeVal >= 915);
-}
-
-function activateLiveMode() {
-    liveToggle.checked = true;
-    liveToggle.dispatchEvent(new Event('change'));
-}
-
 // ── Start ────────────────────────────────────────────────────────────────────
 timeSelector.setExchange('NSE');
 document.getElementById('loading').style.display = 'none';
 
-if (shouldAutoStartLive()) {
+if (isMarketOpen(symbolSelector.exchange)) {
     console.log("[App] Market is open (IST). Activating Live Mode automatically...");
-    activateLiveMode();
+    liveToggle.checked = true;
+    liveToggle.dispatchEvent(new Event('change'));
 } else {
     fetchData();
 }

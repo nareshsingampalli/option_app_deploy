@@ -56,7 +56,11 @@ class DataService {
                             loader.classList.add('waiting'); // Style this to look like a notice
                         }
                     } else {
-                        alert(data.error);
+                        if (window.showNotice) {
+                            window.showNotice(data.error);
+                        } else {
+                            alert(data.error);
+                        }
                         if (loader) loader.style.display = 'none';
                     }
                 }
@@ -73,7 +77,13 @@ class DataService {
 
         } catch (err) {
             console.error('[DataService] fetch error:', err);
-            if (!silent) alert('Error loading data. Check console.');
+            if (!silent) {
+                if (window.showNotice) {
+                    window.showNotice('Error loading data. Check console.');
+                } else {
+                    alert('Error loading data. Check console.');
+                }
+            }
         } finally {
             if (loader) {
                 const isWaitingBanner = loader.classList.contains('waiting');
