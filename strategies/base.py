@@ -160,9 +160,23 @@ class MarketDataPipeline(ABC):
 
         df["iv"]             = iv_list
         df["change_in_ltp"]  = df["ltp"].diff().fillna(0)
-        df["roc_oi"]         = (df["oi"].pct_change()     * 100).replace([np.inf, -np.inf], 0).fillna(0).round(2)
-        df["roc_volume"]     = (df["volume"].pct_change() * 100).replace([np.inf, -np.inf], 0).fillna(0).round(2)
-        df["roc_iv"]         = (df["iv"].pct_change()     * 100).replace([np.inf, -np.inf], 0).fillna(0).round(2)
+        
+        # ── ROC Calculations with cleaning & smoothing ──────────────────────────
+        def process_roc(series, prev_series_for_mask=None, mask_threshold=None):
+            roc = (series.pct_change() * 100).replace([np.inf, -np.inf], 0).fillna(0)
+            if prev_series_for_mask is not None and mask_threshold is not None:
+                roc = roc.mask(prev_series_for_mask.shift(1) < mask_threshold, 0)
+            
+            # 2. Clip outliers
+            roc = roc.clip(-100, 100)
+            
+            # 3. Smooth data (Rolling mean)
+            return roc.rolling(window=5, min_periods=1).mean().round(2)
+
+        df["roc_oi"]         = process_roc(df["oi"])
+        df["roc_volume"]     = process_roc(df["volume"])
+        df["roc_iv"]         = process_roc(df["iv"], prev_series_for_mask=df["iv"], mask_threshold=0.05)
+        
         df["coi_vol_ratio"]  = (df["change_in_oi"] / df["volume"]).replace([np.inf, -np.inf], 0).fillna(0).round(4)
         df["spot_price"]     = df.index.map(spot_map)
         df["spot_price"]     = df["spot_price"].replace(0, pd.NA).ffill().bfill().fillna(0)
