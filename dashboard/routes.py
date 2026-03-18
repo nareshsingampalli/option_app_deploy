@@ -37,7 +37,7 @@ def view_logs():
         return "Log file not found.", 404
     try:
         with open(log_path) as f:
-            return "<pre>" + "".join(f.readlines()[-20:]) + "</pre>"
+            return "<pre>" + "".join(f.readlines()[-50:]) + "</pre>"
     except Exception as e:
         return f"Error reading logs: {e}", 500
 
