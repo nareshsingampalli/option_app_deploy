@@ -58,15 +58,18 @@ class FileStorageBackend(StorageBackend):
             "is_fallback":       ctx.is_fallback,
         }
 
+        from core.utils import ist_now
+        current_time = ist_now().strftime('%H:%M:%S')
+
         if ctx.rows:
             pd.DataFrame(ctx.rows).to_csv(csv_path, index=False)
-            print(f"[FileStorage] Saved {len(ctx.rows)} rows -> {csv_path}")
+            print(f"[{current_time}] [FileStorage] Saved {len(ctx.rows)} rows -> {csv_path}")
         else:
-            print(f"[FileStorage] No rows to save.")
+            print(f"[{current_time}] [FileStorage] No rows to save.")
 
         with open(meta_path, "w") as f:
             json.dump(meta, f, indent=4)
-        print(f"[FileStorage] Meta -> {meta_path}")
+        print(f"[{current_time}] [FileStorage] Meta -> {meta_path}")
         return True
 
 

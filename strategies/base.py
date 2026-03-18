@@ -115,7 +115,8 @@ class MarketDataPipeline(ABC):
         any_fallback = getattr(self.fetcher, "used_fallback", False)
 
         for inst in instruments:
-            print(f"[Pipeline] Processing {inst.symbol}...")
+            from core.utils import ist_now
+            print(f"[{ist_now().strftime('%H:%M:%S')}] [Pipeline] Processing {inst.symbol}...")
             try:
                 df = self.fetcher.get_candles(inst.key, filter_date, expiry_dt=inst.expiry)
                 if df is None or df.empty:
