@@ -56,11 +56,20 @@ class ChartRenderer extends UIComponent {
         const lastRow = sortedRaw[sortedRaw.length - 1];
         const targetDay = lastRow.date.split(' ')[0];
 
-        // Group data by symbol
+        // Group data by symbol and determine clean labels
         const grouped = {};
+        const symbolLabels = {};
         rawData.forEach(row => {
             if (selectedInstruments.includes(row.symbol)) {
-                if (!grouped[row.symbol]) grouped[row.symbol] = { rows: [] };
+                if (!grouped[row.symbol]) {
+                    grouped[row.symbol] = { rows: [] };
+                    
+                    // Generate clean label: NAME + STRIKE (Removing Date, CE, PE as requested)
+                    const baseMatch = row.symbol.match(/^[A-Z]+/);
+                    const baseSym = baseMatch ? baseMatch[0] : '';
+                    const strike = row.strike || '';
+                    symbolLabels[row.symbol] = `${baseSym} ${strike}`.trim();
+                }
                 grouped[row.symbol].rows.push(row);
             }
         });
@@ -95,21 +104,21 @@ class ChartRenderer extends UIComponent {
                     .filter(sym => grouped[sym])
                     .map(sym => {
                         const { color, dash } = this._colorFor(sym);
+                        const isCE = sym.includes('CE');
                         return {
                             x: grouped[sym].rows.map(r => r.date),
                             y: grouped[sym].rows.map(r => r[metric]),
                             mode: 'lines',
-                            name: sym,
+                            name: symbolLabels[sym] || sym,
+                            isCE: isCE, // Store for sorting
                             line: { dash, width: 2, color }
                         };
                     });
 
                 // Group: CE first, then PE. Sort by max value (high) descending within groups
                 traces.sort((a, b) => {
-                    const aCE = a.name.includes('CE');
-                    const bCE = b.name.includes('CE');
-                    if (aCE && !bCE) return -1;
-                    if (!aCE && bCE) return 1;
+                    if (a.isCE && !b.isCE) return -1;
+                    if (!a.isCE && b.isCE) return 1;
 
                     const aMax = Math.max(...a.y.filter(v => v !== null && !isNaN(v)), -Infinity);
                     const bMax = Math.max(...b.y.filter(v => v !== null && !isNaN(v)), -Infinity);
