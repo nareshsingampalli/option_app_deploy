@@ -61,6 +61,7 @@ def _main_scheduler_loop():
     
     print("[Scheduler] Dynamic Master Loop started.")
     last_fetch_times = {} # symbol -> last_min
+    last_delay_min = -1   # globally track delay for this minute cycle
 
     while True:
         now = ist_now()
@@ -90,10 +91,17 @@ def _main_scheduler_loop():
             
             if _secs(start_t) <= _secs(now.time()) <= _secs(end_t):
                 # 3-minute cycle
+                # 3-minute cycle logic
                 is_startup = (now.hour == 9 and 16 <= now.minute <= 20)
                 is_regular = (now.minute % 3 == 0)
-                
+
                 if (is_startup or is_regular) and last_fetch_times.get(symbol) != cur_min:
+                    # If it's a multiple of 5, wait 30 seconds once for this minute batch
+                    if now.minute % 5 == 0 and last_delay_min != cur_min:
+                        print(f"[Scheduler] Multiple of 5 detected ({now.minute}); pausing 30s before burst...")
+                        time.sleep(30)
+                        last_delay_min = cur_min
+
                     threading.Thread(
                         target=_run_fetch, 
                         args=(symbol, prefix),
