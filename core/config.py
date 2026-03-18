@@ -46,6 +46,9 @@ NSE_MARKET_END   = "15:15"
 MCX_MARKET_START = "09:00"
 MCX_MARKET_END   = "23:30"
 
+# ── Data Fetching Configuration ──────────────────────────────────────────────
+CANDLE_INTERVAL_MINUTES = 3    # Single source of truth for fetchers, scheduler, and chart labels
+
 # ── Background scheduler hours ───────────────────────────────────────────────
 SCHEDULER_HOURS: dict[str, dict] = {
     "NSE": {"start": "09:15:20", "end": "15:40:00", "prefix": "option"},

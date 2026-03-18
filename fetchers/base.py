@@ -14,13 +14,14 @@ import pandas as pd
 import upstox_client
 from upstox_client.rest import ApiException
 
-from core.exceptions import ConfigurationError
+from core.config import ConfigurationError, CANDLE_INTERVAL_MINUTES
 
 
 class BaseCandleFetcher(ABC):
     """Abstract base; subclasses implement get_candles()."""
 
-    def __init__(self, access_token: str | None = None):
+    def __init__(self, access_token: str | None = None, interval: int = CANDLE_INTERVAL_MINUTES):
+        self.interval = interval
         token = access_token or os.getenv("UPSTOX_ACCESS_TOKEN")
         if not token or token.strip() in ("", "None"):
             # Fallback to the token used in candle_fetchers.py (line 20)

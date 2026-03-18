@@ -189,9 +189,9 @@ class MarketDataPipeline(ABC):
         if filter_date:
             result = result[result["date"].dt.strftime("%Y-%m-%d") == filter_date]
 
-        # Shift timestamp to candle CLOSE time (+3 min) so chart shows
+        # Shift timestamp to candle CLOSE time so chart shows
         # "close price at close time" rather than at the open time.
-        result["date"] = result["date"] + pd.Timedelta(minutes=3)
+        result["date"] = result["date"] + pd.Timedelta(minutes=self.fetcher.interval)
 
         result["date"] = result["date"].astype(str)
         return result.to_dict(orient="records")

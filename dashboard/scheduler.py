@@ -9,7 +9,7 @@ import time
 from datetime import datetime, timedelta
 
 from dashboard import app, socketio
-from core.config import SCHEDULER_HOURS
+from core.config import SCHEDULER_HOURS, CANDLE_INTERVAL_MINUTES
 from core.utils import ist_now
 
 # Per-symbol fetch locks — dynamic
@@ -90,17 +90,16 @@ def _main_scheduler_loop():
             end_t   = datetime.strptime(cfg["end"],   "%H:%M:%S").time()
             
             if _secs(start_t) <= _secs(now.time()) <= _secs(end_t):
-                # 3-minute cycle
-                # 3-minute cycle logic
+                # Centralized interval cycle
                 is_startup = (now.hour == 9 and 16 <= now.minute <= 20)
-                is_regular = (now.minute % 3 == 0)
+                is_regular = (now.minute % CANDLE_INTERVAL_MINUTES == 0)
 
                 if (is_startup or is_regular) and last_fetch_times.get(symbol) != cur_min:
                     # Stagger burst once per minute cycle
-                    # Wait 10s at %3 boundaries: gives Upstox time to finalize the just-closed candle
+                    # Wait 10s at boundary: gives Upstox time to finalize the just-closed candle
                     # Wait 30s at %5 boundaries: avoid API congestion on 5-min peaks
                     if last_delay_min != cur_min:
-                        delay = 10  # default: wait for Upstox to finalize 3-min candle
+                        delay = 10  # default: wait for Upstox to finalize candle
                         if now.minute % 5 == 0: delay = 30  # 5-min congestion avoidance takes priority
                         
                         print(f"[Scheduler] Minute {now.minute}: pausing {delay}s before burst (candle finalization)...")

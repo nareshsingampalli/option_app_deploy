@@ -30,9 +30,9 @@ class IntradayCandleFetcher(BaseCandleFetcher):
             return None
 
     def get_candles(self, instrument_key: str, date_str: str, expiry_dt=None) -> pd.DataFrame | None:
-        df = self._fetch(instrument_key, "minutes", 3)
+        df = self._fetch(instrument_key, "minutes", self.interval)
         if df is None or df.empty:
-            print("[IntradayFetcher] 3-min unavailable, falling back to 1-min")
+            print(f"[IntradayFetcher] {self.interval}-min unavailable, falling back to 1-min")
             df = self._fetch(instrument_key, "minutes", 1)
         return df
 

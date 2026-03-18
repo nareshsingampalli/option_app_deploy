@@ -86,7 +86,7 @@ class HistoricalCandleFetcher(BaseCandleFetcher):
     # ── Unified interface ────────────────────────────────────────────────────
     def get_candles(self, instrument_key: str, date_str: str, expiry_dt=None) -> pd.DataFrame | None:
         self.used_fallback = False
-        df = self.fetch_single(instrument_key, "minutes", 5, date_str, date_str)
+        df = self.fetch_single(instrument_key, "minutes", self.interval, date_str, date_str)
         if df is None or df.empty:
             df = self.fetch_single(instrument_key, "minutes", 1, date_str, date_str)
             if df is not None and not df.empty:
@@ -102,7 +102,7 @@ class HistoricalCandleFetcher(BaseCandleFetcher):
         target_dt  = datetime.strptime(date_str, "%Y-%m-%d")
 
         if time_str:
-            df = self.fetch_single(spot_key, "minutes", 5, date_str, date_str)
+            df = self.fetch_single(spot_key, "minutes", self.interval, date_str, date_str)
             if df is None or df.empty:
                 df = self.fetch_single(spot_key, "minutes", 1, date_str, date_str)
                 if df is not None and not df.empty:
