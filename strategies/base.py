@@ -33,6 +33,7 @@ from core.config import RISK_FREE_RATE, NSE_MARKET_START, NSE_MARKET_END
 from fetchers.base import BaseCandleFetcher
 from resolvers.base import Instrument, InstrumentResolver
 from storage.base import SaveContext, StorageHandler
+from strategies.normalization import NormalizationFactory
 
 
 class MarketDataPipeline(ABC):
@@ -162,20 +163,17 @@ class MarketDataPipeline(ABC):
         df["change_in_ltp"]  = df["ltp"].diff().fillna(0)
         
         # ── ROC Calculations with cleaning & smoothing ──────────────────────────
-        def process_roc(series, prev_series_for_mask=None, mask_threshold=None):
-            roc = (series.pct_change() * 100).replace([np.inf, -np.inf], 0).fillna(0)
-            if prev_series_for_mask is not None and mask_threshold is not None:
-                roc = roc.mask(prev_series_for_mask.shift(1) < mask_threshold, 0)
-            
-            # 2. Clip outliers
-            roc = roc.clip(-100, 100)
-            
-            # 3. Smooth data (Rolling mean)
-            return roc.rolling(window=5, min_periods=1).mean().round(2)
+        def process_roc(series, strategy='default', **kwargs):
+            """
+            Open-Closed Principle: This method now picks a dynamic strategy
+            for normalization without changing its internal signature.
+            """
+            return NormalizationFactory.get_strategy(strategy).process(series, **kwargs)
 
         df["roc_oi"]         = process_roc(df["oi"])
         df["roc_volume"]     = process_roc(df["volume"])
-        df["roc_iv"]         = process_roc(df["iv"], prev_series_for_mask=df["iv"], mask_threshold=0.05)
+        # Optimal strategy for ROC IV: 'soft_clip' squashes spikes while keeping neg/pos balance
+        df["roc_iv"]         = process_roc(df["iv"], strategy='soft_clip', mask_series=df["iv"], mask_threshold=0.05)
         
         df["coi_vol_ratio"]  = (df["change_in_oi"] / df["volume"]).replace([np.inf, -np.inf], 0).fillna(0).round(4)
         df["spot_price"]     = df.index.map(spot_map)
