@@ -53,16 +53,22 @@ class InstrumentSelector extends UIComponent {
             });
         } 
         // Complex filters (Intraday/Scalping)
-        else if ((type === 'intraday' || type === 'scalping') && spotPrice) {
+        else if ((type.startsWith('intraday') || type.startsWith('scalping')) && spotPrice) {
             // Group by type (CE/PE)
             const groups = {
                 'CE': checkboxes.filter(cb => cb.dataset.type === 'CE'),
                 'PE': checkboxes.filter(cb => cb.dataset.type === 'PE')
             };
 
-            const countMap = type === 'intraday' ? { atm: 1, otm: 2, itm: 2 } : { atm: 1, otm: 1, itm: 1 };
+            const isScalp = type.startsWith('scalping');
+            const targetOpt = type.endsWith('_ce') ? 'CE' : (type.endsWith('_pe') ? 'PE' : null);
+            const countMap = isScalp ? { atm: 1, otm: 1, itm: 1 } : { atm: 1, otm: 2, itm: 2 };
+
+            // Clear all first if it's a specific select
+            checkboxes.forEach(cb => cb.checked = false);
 
             Object.keys(groups).forEach(optType => {
+                if (targetOpt && optType !== targetOpt) return;
                 const group = groups[optType];
                 if (group.length === 0) return;
 
