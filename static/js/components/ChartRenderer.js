@@ -16,7 +16,7 @@ class ChartRenderer extends UIComponent {
         const absHash = Math.abs(hash);
         const isCE = symbol.includes('CE');
         const isPE = symbol.includes('PE');
-        
+
         if (isCE) {
             // Broad hue range: 85 (yellow-green) to 155 (spring green)
             const h = 85 + (absHash % 71);
@@ -27,7 +27,7 @@ class ChartRenderer extends UIComponent {
             return { color: `hsl(${h}, ${s}%, ${l}%)`, dash: 'solid' };
         } else if (isPE) {
             // Broad hue range: 340 (pinks) to 30 (oranges)
-            const h = (340 + (absHash % 51)) % 360; 
+            const h = (340 + (absHash % 51)) % 360;
             const s = 60 + (absHash % 41);
             const l = 35 + (absHash % 36);
             return { color: `hsl(${h}, ${s}%, ${l}%)`, dash: 'dash' };
@@ -62,7 +62,7 @@ class ChartRenderer extends UIComponent {
         };
 
         // Determine the "Reference Day" from the LATEST data point
-        const sortedRaw = [...rawData].sort((a,b) => parseDate(a.date) - parseDate(b.date));
+        const sortedRaw = [...rawData].sort((a, b) => parseDate(a.date) - parseDate(b.date));
         const lastRow = sortedRaw[sortedRaw.length - 1];
         const targetDay = lastRow.date.split(' ')[0];
 
@@ -73,7 +73,7 @@ class ChartRenderer extends UIComponent {
             if (selectedInstruments.includes(row.symbol)) {
                 if (!grouped[row.symbol]) {
                     grouped[row.symbol] = { rows: [] };
-                    
+
                     // Generate clean label: NAME + STRIKE (Removing Date, CE, PE as requested)
                     const baseMatch = row.symbol.match(/^[A-Z]+/);
                     const baseSym = baseMatch ? baseMatch[0] : '';
@@ -132,7 +132,7 @@ class ChartRenderer extends UIComponent {
 
                     const aMax = Math.max(...a.y.filter(v => v !== null && !isNaN(v)), -Infinity);
                     const bMax = Math.max(...b.y.filter(v => v !== null && !isNaN(v)), -Infinity);
-                    return bMax - aMax; 
+                    return bMax - aMax;
                 });
             }
 
@@ -147,8 +147,8 @@ class ChartRenderer extends UIComponent {
             // Calculate Bounds
             const isMCX = selectedInstruments.some(s => ['CRUDEOIL', 'NATURALGAS', 'SILVER', 'GOLD'].some(m => s.includes(m)));
             const mStartObj = parseDate(`${targetDay}T${isMCX ? '09:00:00' : '09:15:00'}`);
-            
-            const allTimes = traces.flatMap(t => t.x).map(x => parseDate(x).getTime()).sort((a,b) => a-b);
+
+            const allTimes = traces.flatMap(t => t.x).map(x => parseDate(x).getTime()).sort((a, b) => a - b);
             const maxTime = allTimes.length > 0 ? allTimes[allTimes.length - 1] : Date.now();
             const maxTimeObj = new Date(maxTime);
 
@@ -164,7 +164,7 @@ class ChartRenderer extends UIComponent {
                 const p10 = sortedY[Math.floor(sortedY.length * 0.10)];
                 const p90 = sortedY[Math.floor(sortedY.length * 0.90)];
                 const diff = p90 - p10;
-                
+
                 // Sensitivity handles near-flat lines
                 const sens = metric.includes('roc') || metric.includes('ratio') ? 0.05 : 10;
                 const padding = Math.max(diff * 0.3, sens);
@@ -179,7 +179,7 @@ class ChartRenderer extends UIComponent {
             const layout = {
                 margin: { t: 40, r: 30, l: 60, b: 60 },
                 height: 550,
-                xaxis: { 
+                xaxis: {
                     range: [new Date(viewStart), maxTimeObj],
                     minallowed: mStartObj,
                     maxallowed: maxTimeObj,
@@ -190,11 +190,12 @@ class ChartRenderer extends UIComponent {
                     hoverformat: '%H:%M',
                     title: '' // Explicitly remove "Click to enter X axis title"
                 },
-                yaxis: { 
+                yaxis: {
                     title: this._metrics.label(metric),
                     automargin: true,
                     fixedrange: false,
-                    range: yRange
+                    range: yRange,
+
                 },
                 hovermode: 'x unified',
                 dragmode: 'pan',
