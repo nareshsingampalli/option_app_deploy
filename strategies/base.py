@@ -181,13 +181,17 @@ class MarketDataPipeline(ABC):
 
         result = df[["ltp", "change_in_ltp", "roc_oi", "roc_volume", "roc_iv", "coi_vol_ratio", "spot_price"]].reset_index()
 
-        # Time-window filter
+        # Time-window filter (uses candle OPEN time — correct)
         result = result[
             (result["date"].dt.time >= self.market_start) &
             (result["date"].dt.time <= self.market_end)
         ]
         if filter_date:
             result = result[result["date"].dt.strftime("%Y-%m-%d") == filter_date]
+
+        # Shift timestamp to candle CLOSE time (+3 min) so chart shows
+        # "close price at close time" rather than at the open time.
+        result["date"] = result["date"] + pd.Timedelta(minutes=3)
 
         result["date"] = result["date"].astype(str)
         return result.to_dict(orient="records")
