@@ -146,17 +146,19 @@ class ChartRenderer extends UIComponent {
             const windowMs = 3 * 60 * 60 * 1000;
             const viewStart = Math.max(mStartObj.getTime(), maxTime - windowMs);
 
-            // Robust Y-Axis Range logic
+            // Focused Y-Axis Range logic (Focus on 10th-90th percentile to ignore extremes)
             let yRange = null;
             const allY = traces.flatMap(t => t.y).filter(v => v !== null && !isNaN(v));
             if (allY.length > 5) {
                 const sortedY = allY.sort((a, b) => a - b);
-                const p5 = sortedY[Math.floor(sortedY.length * 0.05)];
-                const p95 = sortedY[Math.floor(sortedY.length * 0.95)];
-                const diff = p95 - p5;
+                const p10 = sortedY[Math.floor(sortedY.length * 0.10)];
+                const p90 = sortedY[Math.floor(sortedY.length * 0.90)];
+                const diff = p90 - p10;
+                
+                // Sensitivity handles near-flat lines
                 const sens = metric.includes('roc') || metric.includes('ratio') ? 0.05 : 10;
-                const padding = Math.max(diff * 0.2, sens);
-                yRange = [p5 - padding, p95 + padding];
+                const padding = Math.max(diff * 0.3, sens);
+                yRange = [p10 - padding, p90 + padding];
 
                 // Ensure non-negative metrics (LTP, Spot, etc.) don't show negative Y-axis
                 if (['ltp', 'spot_price', 'coi_vol_ratio'].includes(metric)) {
