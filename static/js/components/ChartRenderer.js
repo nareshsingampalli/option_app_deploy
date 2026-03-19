@@ -179,14 +179,15 @@ class ChartRenderer extends UIComponent {
             }
 
             const layout = {
-                margin: { t: 40, r: 30, l: 60, b: 60 },
+                margin: { t: 40, r: 30, l: 60, b: 80 },
                 height: 550,
                 xaxis: {
                     range: [new Date(viewStart), maxTimeObj],
                     minallowed: mStartObj,
                     maxallowed: maxTimeObj,
                     autorange: false,
-                    rangeslider: { visible: true, thickness: 0.1, range: [mStartObj, maxTimeObj] },
+                    automargin: true,
+                    rangeslider: { visible: true, thickness: 0.15, range: [mStartObj, maxTimeObj] },
                     type: 'date',
                     tickformat: '%H:%M',
                     hoverformat: '%H:%M',
