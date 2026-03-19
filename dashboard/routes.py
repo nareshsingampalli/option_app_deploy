@@ -10,7 +10,6 @@ import time
 
 import pandas as pd
 from flask import jsonify, render_template, request
-from dotenv import load_dotenv
 from datetime import datetime
 from flask_socketio import join_room, leave_room, rooms
 
@@ -46,10 +45,21 @@ def view_logs():
 def refresh_token():
     try:
         import glob
-        env_file = os.getenv("ENV_FILE", "/home/ubuntu/refactor_app/.env")
+        from dotenv import load_dotenv
+        import core.config
+        
+        # Use centralized location logic from core.config
+        env_file = core.config.ENV_FILE
+        
         print(f"[API] Reloading token from {env_file}")
         load_dotenv(env_file, override=True)
         
+        # Update the live config variable using the centralized helper
+        if core.config.reload_access_token():
+            print(f"[API] New token loaded into core.config.")
+        else:
+            print("[API] WARNING: UPSTOX_ACCESS_TOKEN not found in environment after reload.")
+
         # Clear out any cached 'Invalid token' errors in all recent metadata files
         for dr in ["nse_data", "mcx_data"]:
             meta_files = glob.glob(os.path.join(os.getcwd(), dr, "*meta*.json"))
@@ -187,10 +197,10 @@ def get_option_data():
         from dashboard.scheduler import get_lock
         lock = get_lock(symbol)
         
-        # Try to acquire lock to avoid double-fetching. 
-        # Non-blocking: if a fetch is already running (either from scheduler OR another API call), 
-        # just exit and let the existing fetch finish.
         if lock.acquire(blocking=False):
+            # Proactively notify the frontend via WebSocket that we are starting a fetch
+            socketio.emit("data_fetching", {"symbol": symbol, "message": f"Processing {date_str} data for {symbol}...\u2026"}, room=symbol)
+            
             def bg_fetch_task():
                 try:
                     # Double-check freshness now that we HAVE the lock, 
@@ -440,7 +450,7 @@ def _notify_rejoining_client(sid: str, symbol: str, exchange: str):
                       {"symbol": symbol, "exchange": exchange,
                        "status": "weekend",
                        "message": f"Markets are closed today (weekend). "
-                                  f"Last trading day: {trading_day}."},
+                                   f"Last trading day: {trading_day}."},
                       room=sid)
         print(f"[WS] Told {sid} market is closed (weekend) for {symbol}.")
     elif not market_open:
@@ -467,7 +477,7 @@ def _notify_rejoining_client(sid: str, symbol: str, exchange: str):
                       {"symbol": symbol, "exchange": exchange,
                        "status": "fetching_initial",
                        "message": f"Market is open but initial data for {symbol} "
-                                  f"is being fetched. Please wait…"},
+                                   f"is being fetched. Please wait…"},
                       room=sid)
         print(f"[WS] Told {sid} initial fetch pending for {symbol}.")
 

@@ -11,7 +11,7 @@ option chains and can fetch data via the Upstox APIs (live, historical, and expi
 	 pip install -r requirements.txt
 	 ```
 
-2. Provide environment variables (example `.env`):
+2. Provide environment variables (via system shell or container environment):
 
 	 - `UPSTOX_ACCESS_TOKEN` — Upstox API access token
 	 - `SENTRY_DSN` (optional) — Sentry DSN for error reporting

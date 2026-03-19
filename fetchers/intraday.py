@@ -18,7 +18,7 @@ class IntradayCandleFetcher(BaseCandleFetcher):
         @retry_api_call(max_retries=3)
         def _get():
             return self._history_api.get_intra_day_candle_data(
-                instrument_key, unit, str(interval)
+                instrument_key, unit, interval
             )
 
         try:

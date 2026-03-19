@@ -2,11 +2,6 @@
 import os
 import sentry_sdk
 from sentry_sdk.integrations.flask import FlaskIntegration
-from dotenv import load_dotenv
-
-load_dotenv()
-load_dotenv(os.getenv("ENV_FILE", "/home/ubuntu/refactor_app/.env"))
-
 # Initialize Sentry
 sentry_dsn = os.getenv("SENTRY_DSN")
 if sentry_dsn:

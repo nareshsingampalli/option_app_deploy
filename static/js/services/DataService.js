@@ -39,8 +39,10 @@ class DataService {
 
         const loader = document.getElementById('loading');
         if (!silent && loader) {
-            loader.textContent = `Fetching data for ${params.symbol}…`;
+            const datePart = params.date && params.date !== new Date().toLocaleDateString('en-CA') ? ` on ${params.date}` : '';
+            loader.textContent = `Loading ${params.symbol}${datePart}\u2026`;
             loader.style.display = 'flex';
+            loader.classList.remove('waiting'); // Reset any prior waiting state
         }
 
         try {

@@ -205,8 +205,8 @@ def build_pipeline(
 
     print(f"[StrategyChain] Resolving pipeline for {symbol} on {target_date} (live={live_mode}, exchange={exchange})...")
     last_expired = None
-    if (exchange == "NSE" or exchange == "BSE") and not live_mode:
-        print(f"[StrategyChain] Fetching last expired date for {exchange}...")
+    if exchange == "NSE" and not live_mode:
+        print(f"[StrategyChain] Fetching last expired date for NSE...")
         last_expired = _fetch_last_expired_dt(symbol)
         print(f"[StrategyChain] Last expired date: {last_expired}")
     

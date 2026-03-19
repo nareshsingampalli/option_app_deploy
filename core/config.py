@@ -60,6 +60,27 @@ SCHEDULER_HOURS: dict[str, dict] = {
 DEFAULT_NUM_STRIKES = 3      # strikes on each side of ATM
 MCX_STRIKE_STEP     = 50     # ATM rounding step for MCX
 
+# ── API configuration ────────────────────────────────────────────────────────
+# Single source of truth for the Upstox API credentials.
+# The dashboard uses /api/refresh-token to reload these from the .env file at runtime.
+UPSTOX_API_URL      = os.getenv("UPSTOX_API_URL", "https://api.upstox.com")
+UPSTOX_ACCESS_TOKEN =  "eyJ0eXAiOiJKV1QiLCJrZXlfaWQiOiJza192MS4wIiwiYWxnIjoiSFMyNTYifQ.eyJzdWIiOiI4Q0FRNzUiLCJqdGkiOiI2OWIyM2I4MWE5YzAwZDAwNWIzMWJkMmQiLCJpc011bHRpQ2xpZW50IjpmYWxzZSwiaXNQbHVzUGxhbiI6dHJ1ZSwiaWF0IjoxNzczMjg4MzIxLCJpc3MiOiJ1ZGFwaS1nYXRld2F5LXNlcnZpY2UiLCJleHAiOjE3NzMzNTI4MDB9.CoCojyphbBuGxh6NGo_DLnRdSxTRziyVU6Fjgh7iriY"
+# Location of the .env file (used by refresh-token endpoint)
+ENV_FILE = os.getenv("ENV_FILE") or "/home/ubuntu/refactor_app/.env"
+if not os.path.exists(ENV_FILE):
+    _local = os.path.join(os.getcwd(), ".env")
+    if os.path.exists(_local):
+        ENV_FILE = _local
+
+def reload_access_token():
+    """Reloads the token from the environment into the live config variable."""
+    global UPSTOX_ACCESS_TOKEN
+    new_token = os.getenv("UPSTOX_ACCESS_TOKEN")
+    if new_token:
+        UPSTOX_ACCESS_TOKEN = new_token
+        return True
+    return False
+
 # ── API rate limits ──────────────────────────────────────────────────────────
 UPSTOX_RATE_LIMIT_CALLS  = 15
 UPSTOX_RATE_LIMIT_PERIOD = 1.0   # seconds

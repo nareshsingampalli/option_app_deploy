@@ -34,7 +34,7 @@ class HistoricalCandleFetcher(BaseCandleFetcher):
         @retry_api_call(max_retries=3)
         def _get():
             return self._history_api.get_historical_candle_data1(
-                instrument_key, unit, str(interval), to_date, from_date
+                instrument_key, unit, interval, to_date, from_date
             )
 
         try:

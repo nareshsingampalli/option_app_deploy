@@ -1,74 +1,65 @@
-"""ExpiredCandleFetcher — Upstox /v2/expired-instruments/* REST endpoints."""
-
-import urllib.parse
-import requests
+import upstox_client
+from upstox_client.rest import ApiException
 import pandas as pd
 
 from core.rate_limiter import rate_limited
 from core.config import UPSTOX_RATE_LIMIT_CALLS, UPSTOX_RATE_LIMIT_PERIOD
 from fetchers.base import BaseCandleFetcher
 
-import os
-
-_BASE = os.getenv("UPSTOX_API_URL", "https://api.upstox.com") + "/v2/expired-instruments"
-
 
 class ExpiredCandleFetcher(BaseCandleFetcher):
-    """REST client for expired instrument endpoints."""
+    """SDK-based client for expired instrument endpoints."""
 
-    def __init__(self, access_token: str | None = None):
-        super().__init__(access_token)
-        self._headers = {
-            "Content-Type":  "application/json",
-            "Accept":        "application/json",
-            "Authorization": f"Bearer {self.access_token}",
-        }
+    def __init__(self):
+        super().__init__()
+        # Initialize the ExpiredInstrumentApi using the shared api_client from the base class
+        self._api = upstox_client.ExpiredInstrumentApi(self._api_client)
 
     @rate_limited(max_calls=UPSTOX_RATE_LIMIT_CALLS, period=UPSTOX_RATE_LIMIT_PERIOD)
     def fetch_expiries(self, underlying_key: str) -> list:
-        safe = urllib.parse.quote(underlying_key)
-        url  = f"{_BASE}/expiries?instrument_key={safe}"
         try:
-            r = requests.get(url, headers=self._headers, timeout=15)
-            if r.status_code == 200:
-                data = r.json()
-                self._save_mock_response(data, "expired_expiries", underlying_key)
-                return data.get("data", [])
-            print(f"[ExpiredFetcher] fetch_expiries {r.status_code}: {r.text[:200]}")
-        except Exception as e:
+            resp = self._api.get_expiries(underlying_key)
+            if resp and hasattr(resp, "data"):
+                self._save_mock_response(resp, "expired_expiries", underlying_key)
+                return resp.data or []
+            print(f"[ExpiredFetcher] fetch_expiries error: Invalid response format")
+        except ApiException as e:
             print(f"[ExpiredFetcher] fetch_expiries error: {e}")
+        except Exception as e:
+            print(f"[ExpiredFetcher] fetch_expiries unexpected error: {e}")
         return []
 
     @rate_limited(max_calls=UPSTOX_RATE_LIMIT_CALLS, period=UPSTOX_RATE_LIMIT_PERIOD)
     def fetch_contracts(self, underlying_key: str, expiry_date: str) -> list:
-        safe = urllib.parse.quote(underlying_key)
-        url  = f"{_BASE}/option/contract?instrument_key={safe}&expiry_date={expiry_date}"
         try:
-            r = requests.get(url, headers=self._headers, timeout=15)
-            if r.status_code == 200:
-                data = r.json()
-                self._save_mock_response(data, "expired_contracts", f"{underlying_key}_{expiry_date}")
-                return data.get("data", [])
-            print(f"[ExpiredFetcher] fetch_contracts {r.status_code}: {r.text[:200]}")
-        except Exception as e:
+            # We default to option contracts, but future contracts are also available in the SDK
+            resp = self._api.get_expired_option_contracts(underlying_key, expiry_date)
+            if resp and hasattr(resp, "data"):
+                self._save_mock_response(resp, "expired_contracts", f"{underlying_key}_{expiry_date}")
+                return resp.data or []
+            print(f"[ExpiredFetcher] fetch_contracts error: Invalid response format")
+        except ApiException as e:
             print(f"[ExpiredFetcher] fetch_contracts error: {e}")
+        except Exception as e:
+            print(f"[ExpiredFetcher] fetch_contracts unexpected error: {e}")
         return []
 
     @rate_limited(max_calls=UPSTOX_RATE_LIMIT_CALLS, period=UPSTOX_RATE_LIMIT_PERIOD)
     def fetch_candle_data(
         self, instrument_key: str, interval_str: str, to_date: str, from_date: str
     ) -> pd.DataFrame | None:
-        safe = urllib.parse.quote(instrument_key)
-        url  = f"{_BASE}/historical-candle/{safe}/{interval_str}/{to_date}/{from_date}"
         try:
-            r = requests.get(url, headers=self._headers, timeout=15)
-            if r.status_code == 200:
-                data = r.json()
-                self._save_mock_response(data, "expired", instrument_key)
-                return self._process_response(data)
-            print(f"[ExpiredFetcher] fetch_candle_data {r.status_code}: {r.text[:200]}")
-        except Exception as e:
+            resp = self._api.get_expired_historical_candle_data(
+                instrument_key, interval_str, to_date, from_date
+            )
+            if resp:
+                self._save_mock_response(resp, "expired", instrument_key)
+                return self._process_response(resp)
+            print(f"[ExpiredFetcher] fetch_candle_data error: Invalid response format")
+        except ApiException as e:
             print(f"[ExpiredFetcher] fetch_candle_data error: {e}")
+        except Exception as e:
+            print(f"[ExpiredFetcher] fetch_candle_data unexpected error: {e}")
         return None
 
     # ── Unified interface ────────────────────────────────────────────────────

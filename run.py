@@ -5,9 +5,6 @@ Usage:
     python run.py
 """
 
-from dotenv import load_dotenv
-load_dotenv()
-
 # Import app first, then register routes + scheduler (avoids circular imports)
 from dashboard import app, socketio
 import dashboard.routes     # noqa: F401 — registers @app.route decorators

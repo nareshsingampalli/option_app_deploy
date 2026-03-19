@@ -11,28 +11,23 @@ import pandas as pd
 import upstox_client
 from upstox_client.rest import ApiException
 
-from core.config import CANDLE_INTERVAL_MINUTES
+import core.config
 from core.exceptions import ConfigurationError
 
 
 class BaseCandleFetcher(ABC):
     """Abstract base; subclasses implement get_candles()."""
 
-    def __init__(self, access_token: str | None = None, interval: int = CANDLE_INTERVAL_MINUTES):
+    def __init__(self, interval: int = core.config.CANDLE_INTERVAL_MINUTES):
         self.interval = interval
-        token = access_token or os.getenv("UPSTOX_ACCESS_TOKEN")
-        if not token or token.strip() in ("", "None"):
-            # Fallback to the token used in candle_fetchers.py (line 20)
-            from dashboard.scheduler import get_active_token
-            token = get_active_token()
-            
-        if not token:
-            raise ConfigurationError("UPSTOX_ACCESS_TOKEN not found in env or scheduler.")
+        token = core.config.UPSTOX_ACCESS_TOKEN
+        if not token or (isinstance(token, str) and token.strip() in ("", "None")):
+            raise ConfigurationError("UPSTOX_ACCESS_TOKEN not found in core.config.")
         
         cfg = upstox_client.Configuration()
         cfg.access_token = token
-        api_client = upstox_client.ApiClient(cfg)
-        self._history_api = upstox_client.HistoryApi(api_client)
+        self._api_client = upstox_client.ApiClient(cfg)
+        self._history_api = upstox_client.HistoryV3Api(self._api_client)
         self.access_token = token
         self.used_fallback = False
 

@@ -113,6 +113,13 @@ window.buildParams = function () {
 function fetchData(silent = false) {
     const datePicker = document.getElementById('date-picker');
     if (!datePicker.value) return;
+
+    if (!silent) {
+        // Clear active UI state immediately to prevent showing yesterday/stale data
+        chartRenderer.clear ? chartRenderer.clear() : null;
+        dataService.clear();
+    }
+    
     dataService.load(window.buildParams(), silent);
 }
 
