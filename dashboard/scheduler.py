@@ -15,6 +15,10 @@ from core.utils import ist_now
 # Per-symbol fetch locks — dynamic
 _locks_lock = threading.Lock()
 _fetch_locks: dict[str, threading.Lock] = {}
+_wake_event = threading.Event()
+
+def wake_scheduler():
+    _wake_event.set()
 
 def get_lock(symbol: str) -> threading.Lock:
     with _locks_lock:
@@ -113,7 +117,44 @@ def _main_scheduler_loop():
                     ).start()
                     last_fetch_times[symbol] = cur_min
         
-        time.sleep(20)
+        # Check if any symbol was processed (in market hours)
+        if not active_symbols:
+            # No clients watching anything
+            _wake_event.wait(timeout=60)
+            _wake_event.clear()
+            continue
+
+        any_in_hours = False
+        for symbol in active_symbols:
+            sym_upper = symbol.upper()
+            if sym_upper in NSE_INDEX_KEYS or sym_upper in ["NIFTY", "BANKNIFTY", "FINNIFTY"]:
+                cfg = SCHEDULER_HOURS["NSE"]
+            elif sym_upper in MCX_FUT_KEYS or sym_upper in ["CRUDEOIL", "NATURALGAS", "SILVER", "GOLD"]:
+                cfg = SCHEDULER_HOURS["MCX"]
+            elif sym_upper in ["SENSEX", "BANKEX"]:
+                cfg = SCHEDULER_HOURS["BSE"]
+            else: continue
+            
+            start_t = datetime.strptime(cfg["start"], "%H:%M:%S").time()
+            end_t   = datetime.strptime(cfg["end"],   "%H:%M:%S").time()
+            if _secs(start_t) <= _secs(now.time()) <= _secs(end_t):
+                any_in_hours = True
+                break
+        
+        if not any_in_hours:
+            # Market is closed for all watched symbols. 
+            # Kill the loop until the next morning (9:00 AM) or until a user connects.
+            next_open = now.replace(hour=9, minute=0, second=0, microsecond=0)
+            if now > next_open:
+                next_open += timedelta(days=1)
+            sleep_sec = (next_open - now).total_seconds()
+            
+            print(f"[Scheduler] Market is closed. Hibernating completely for {sleep_sec/3600:.1f} hours till next open...")
+            _wake_event.wait(timeout=sleep_sec)
+            _wake_event.clear()
+        else:
+            _wake_event.wait(timeout=20)
+            _wake_event.clear()
 
 def start_schedulers():
     t = threading.Thread(target=_main_scheduler_loop, daemon=True, name="MasterScheduler")

@@ -160,8 +160,10 @@ def get_option_data():
                 # One-time Final Fetch:
                 # If market is closed, check if the file on disk was updated AFTER the close.
                 # If not, we need one final fetch to get the complete daily data.
-                file_mtime = datetime.fromtimestamp(os.path.getmtime(csv_path)).replace(tzinfo=now_dt.tzinfo)
-                if file_mtime < m_end_dt:
+                file_mtime_ts = os.path.getmtime(csv_path)
+                m_end_ts      = m_end_dt.timestamp()
+                
+                if file_mtime_ts < m_end_ts:
                     needs_fetch = True
                 else:
                     needs_fetch = False
@@ -202,28 +204,58 @@ def get_option_data():
             socketio.emit("data_fetching", {"symbol": symbol, "message": f"Processing {date_str} data for {symbol}...\u2026"}, room=symbol)
             
             def bg_fetch_task():
-                try:
-                    # Double-check freshness now that we HAVE the lock, 
-                    # in case it finished just as we were acquiring.
-                    if not os.path.exists(csv_path) or (time.time() - os.path.getmtime(csv_path) > 60):
-                        print(f"[API-BG] Running refresh for {symbol}...")
-                        from storage.db_storage import build_storage_chain
-                        from strategies.handlers import build_pipeline
-                        
-                        storage  = build_storage_chain()
-                        pipeline = build_pipeline(exchange, date_str, live_mode, symbol, storage)
-                        if pipeline:
-                            pipeline.run(symbol, date_str, time_str)
-                            # Notify the UI to re-pull the newly saved data
-                            socketio.emit("data_updated", 
-                                          {"prefix": exchange, "symbol": symbol, "timestamp": datetime.now().isoformat()},
-                                          room=symbol)
-                except Exception as e:
-                    print(f"[API-BG] Fetch error: {e}")
-                finally:
+                from datetime import datetime, timedelta
+                curr_date = date_str
+                retries = 0
+                max_fallback = 5 
+                
+                while retries < max_fallback:
+                    suffix = f"_{time_str.replace(':', '')}" if time_str else ""
+                    c_path = os.path.join(os.getcwd(), dir_name, f"{prefix}_{sym}_tabular_{curr_date}{suffix}.csv")
+                    m_path = os.path.join(os.getcwd(), dir_name, f"{prefix}_{sym}_meta_{curr_date}{suffix}.json")
+                    
                     try:
-                        lock.release()
-                    except RuntimeError: pass
+                        # Only fetch if file is missing or old
+                        if not os.path.exists(c_path) or (time.time() - os.path.getmtime(c_path) > 60):
+                            print(f"[API-BG] Fetching {symbol} for {curr_date}...")
+                            from storage.db_storage import build_storage_chain
+                            from strategies.handlers import build_pipeline
+                            
+                            storage  = build_storage_chain()
+                            pipeline = build_pipeline(exchange, curr_date, live_mode, symbol, storage)
+                            
+                            if pipeline:
+                                pipeline.run(symbol, curr_date, time_str)
+                                
+                                # Check if it was a holiday (404)
+                                if getattr(pipeline.fetcher, "last_status", None) == 404:
+                                    print(f"[API-BG] {curr_date} is a Holiday (404). Trying previous day...")
+                                    dt = datetime.strptime(curr_date, "%Y-%m-%d") - timedelta(days=1)
+                                    curr_date = dt.strftime("%Y-%m-%d")
+                                    retries += 1
+                                    continue
+                                
+                                # Success (or non-404 error)
+                                socketio.emit("data_updated", 
+                                              {"prefix": exchange, "symbol": symbol, "date": curr_date, "timestamp": datetime.now().isoformat()},
+                                              room=symbol)
+                                break
+                            else:
+                                print(f"[API-BG] Pipeline blocked for {curr_date}.")
+                                break
+                        else:
+                            # File already exists and is fresh
+                            socketio.emit("data_updated", 
+                                          {"prefix": exchange, "symbol": symbol, "date": curr_date, "timestamp": datetime.now().isoformat()},
+                                          room=symbol)
+                            break
+                    except Exception as e:
+                        print(f"[API-BG] Error: {e}")
+                        break
+                
+                try:
+                    lock.release()
+                except: pass
             
             import threading
             threading.Thread(target=bg_fetch_task, daemon=True).start()
@@ -339,6 +371,10 @@ def handle_join_symbol(data):
 
     join_room(symbol)
     print(f"[WS] Client {sid} joined room: {symbol}")
+    
+    # Wake up the scheduler if it was hibernating
+    from dashboard.scheduler import wake_scheduler
+    wake_scheduler()
 
     # ── Immediately serve the most recently available data on rejoin ──────────
     # After a long absence (e.g. phone switch tabs), the client missed data_updated

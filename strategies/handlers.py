@@ -86,13 +86,7 @@ class LiveHandler(StrategyHandler):
 
 class TodayGuardHandler(StrategyHandler):
     def handle(self, ctx, storage):
-        # 1. Block weekends for ALL modes
-        target_dt = datetime.strptime(ctx.target_date, "%Y-%m-%d")
-        if target_dt.weekday() >= 5:  # 5=Saturday, 6=Sunday
-            print(f"[StrategyChain] BLOCKED: {ctx.target_date} is a weekend trading holiday.")
-            return None
-
-        # 2. Block today's date if not in Live mode
+        # Block today's date if not in Live mode
         if ctx.target_date == ctx.today_str and not ctx.live_mode:
             print(f"[StrategyChain] BLOCKED: {ctx.target_date} is today. Enable Live mode.")
             return None

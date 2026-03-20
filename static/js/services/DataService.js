@@ -126,6 +126,20 @@ class DataService {
 
                 if (data.symbol === activeSym || (data.prefix === prefix && !data.symbol)) {
                     console.log(`[DataService] WebSocket update for ${activeSym}`);
+                    
+                    // If the server shifted the date (holiday fallback), update our UI state
+                    if (data.date && params && data.date !== params.date) {
+                        console.log(`[DataService] Server shifted date to ${data.date} (Holiday fallback)`);
+                        const datePicker = document.getElementById('date-picker');
+                        if (datePicker) {
+                            datePicker.value = data.date;
+                            // Re-build params with the new date
+                            const newParams = window.buildParams();
+                            this.load(newParams, true);
+                            return;
+                        }
+                    }
+
                     if (params) this.load(params, true);
                 }
             });

@@ -86,9 +86,9 @@ symbolSelector.onChange(({ exchange, symbol }) => {
     chartRenderer.clear ? chartRenderer.clear() : null; 
     dataService.clear(); 
     
-    if (isLiveMode) {
-        dataService.initWebSocket(exchange, symbol);
-    }
+    // Always initialize WebSocket and join room to listen for background fetch updates (historical or live)
+    dataService.initWebSocket(exchange, symbol);
+    
     fetchData();
 });
 
@@ -132,13 +132,24 @@ const datePicker = document.getElementById('date-picker');
 const liveToggle = document.getElementById('live-toggle');
 
 // Init dates
+function getInitialDate() {
+    const now = new Date();
+    const ist = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+    const day = ist.getDay(); // 0=Sun, 6=Sat
+    
+    if (day === 0) { // Sunday -> Last Friday
+        ist.setDate(ist.getDate() - 2);
+    } else if (day === 6) { // Saturday -> Friday
+        ist.setDate(ist.getDate() - 1);
+    }
+    return ist.toLocaleDateString('en-CA');
+}
+
 const todayStr = new Date().toLocaleDateString('en-CA');
-const yesterdayObj = new Date();
-yesterdayObj.setDate(yesterdayObj.getDate() - 1);
-const yesterdayStr = yesterdayObj.toLocaleDateString('en-CA');
+const initialDateStr = getInitialDate();
 
 datePicker.max = todayStr;
-datePicker.value = yesterdayStr;
+datePicker.value = initialDateStr;
 
 datePicker.addEventListener('change', () => {
     // Check for weekends (Note: Date picking in localized browsers can be tricky, using 'CA' or splitting ensures local day)
@@ -197,11 +208,12 @@ liveToggle.addEventListener('change', () => {
         const todayStr = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD
         datePicker.value = todayStr;
         datePicker.disabled = true;
+        // WS is already initialized by SymbolSelector, but we ensure it's correct
         dataService.initWebSocket(symbolSelector.exchange, symbolSelector.symbol);
         fetchData();
     } else {
         datePicker.disabled = false;
-        dataService.stopWebSocket();
+        // We keep the socket open to hear about background historical fetches
     }
 });
 
@@ -281,5 +293,7 @@ if (isMarketOpen(symbolSelector.exchange)) {
     liveToggle.checked = true;
     liveToggle.dispatchEvent(new Event('change'));
 } else {
+    // Join room anyway to listen for updates to default symbol
+    dataService.initWebSocket(symbolSelector.exchange, symbolSelector.symbol);
     fetchData();
 }

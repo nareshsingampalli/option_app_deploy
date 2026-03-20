@@ -24,9 +24,11 @@ class IntradayCandleFetcher(BaseCandleFetcher):
         try:
             resp = _get()
             self._save_mock_response(resp, "intraday", instrument_key)
+            self.last_status = 200
             return self._process_response(resp)
         except ApiException as e:
-            print(f"[IntradayFetcher] ApiException {instrument_key}: {e}")
+            self.last_status = getattr(e, "status", None)
+            print(f"[IntradayFetcher] ApiException {instrument_key} (Status {self.last_status}): {e}")
             return None
 
     def get_candles(self, instrument_key: str, date_str: str, expiry_dt=None) -> pd.DataFrame | None:

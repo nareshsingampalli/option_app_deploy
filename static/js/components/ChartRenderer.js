@@ -187,6 +187,8 @@ class ChartRenderer extends UIComponent {
                     maxallowed: maxTimeObj,
                     autorange: false,
                     automargin: true,
+                    // rangeslider restored per user request.
+                    // Note: to zoom Y-axis on mobile, pinch directly on the Y-axis numbers/labels
                     rangeslider: { visible: true, thickness: 0.15, range: [mStartObj, maxTimeObj] },
                     type: 'date',
                     tickformat: '%H:%M',
@@ -198,7 +200,8 @@ class ChartRenderer extends UIComponent {
                     automargin: true,
                     fixedrange: false,
                     range: yRange,
-                    tickformat: '.2f',
+                    // Use SI prefix for Spot Price or any large values (e.g. 25343 -> 25.343k)
+                    tickformat: (metric === 'spot_price' || (yRange && yRange[1] > 1000)) ? '.5~s' : '.2f',
                     hoverformat: '.2f'
                 },
                 hovermode: 'x unified',

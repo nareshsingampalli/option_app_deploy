@@ -30,6 +30,7 @@ class BaseCandleFetcher(ABC):
         self._history_api = upstox_client.HistoryV3Api(self._api_client)
         self.access_token = token
         self.used_fallback = False
+        self.last_status   = None # To track HTTP status codes from Upstox (e.g. 404 for holiday)
 
     @abstractmethod
     def get_candles(self, instrument_key: str, date_str: str, expiry_dt=None) -> pd.DataFrame | None:
