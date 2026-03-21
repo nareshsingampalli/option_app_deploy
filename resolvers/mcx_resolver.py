@@ -24,7 +24,7 @@ import numpy as np
 import pandas as pd
 import requests
 
-from core.config import MCX_INSTRUMENT_URL, MCX_STRIKE_STEP, DEFAULT_NUM_STRIKES
+from core.config import MCX_INSTRUMENT_URL, DEFAULT_NUM_STRIKES
 from core.exceptions import InstrumentResolutionError
 from resolvers.base import Instrument, InstrumentResolver
 
@@ -51,13 +51,8 @@ class MCXInstrumentResolver(InstrumentResolver):
         spot_key, target_expiry = self._resolve_spot_key(commodity, df_all, reference_date)
         print(f"[MCXResolver] spot_key={spot_key}, expiry={target_expiry.date()}")
 
-        # ── Step 2: Compute ATM strikes ──────────────────────────────────────
-        atm = round(spot_price / MCX_STRIKE_STEP) * MCX_STRIKE_STEP
-        target_strikes = [atm + MCX_STRIKE_STEP * i for i in range(-num_strikes, num_strikes + 1)]
-        print(f"[MCXResolver] ATM={atm}, strikes={target_strikes}")
-
-        # ── Step 3: Filter options with precise_pattern ──────────────────────
-        instruments = self._resolve_options(commodity, target_expiry, target_strikes, df_all)
+        # -- Step 2: Filter options and compute strikes dynamically -----------
+        instruments = self._resolve_options(commodity, target_expiry, spot_price, num_strikes, df_all)
 
         if not instruments:
             return [], target_expiry.to_pydatetime(), False
@@ -136,7 +131,8 @@ class MCXInstrumentResolver(InstrumentResolver):
         self,
         commodity:      str,
         target_expiry:  pd.Timestamp,
-        target_strikes: list[float],
+        spot_price:     float,
+        num_strikes:    int,
         df_all:         pd.DataFrame,
     ) -> list[Instrument]:
         month = target_expiry.strftime("%b").upper()
@@ -165,22 +161,23 @@ class MCXInstrumentResolver(InstrumentResolver):
             print(f"[MCXResolver] No options matched pattern for {month} {year}")
             return []
 
+        # Find ATM and target strikes dynamically
+        strikes = sorted(opts["strike"].unique())
+        if not strikes:
+            return []
+        atm_idx = int(np.abs(np.array(strikes) - spot_price).argmin())
+        target_strikes = strikes[max(0, atm_idx - num_strikes): atm_idx + num_strikes + 1]
+        print(f"[MCXResolver] ATM={strikes[atm_idx]}, strikes={target_strikes}")
+
         instruments: list[Instrument] = []
         for strike in target_strikes:
             for opt_type in ("CE", "PE"):
                 match = opts[
                     (opts["instrument_type"] == opt_type) &
-                    (opts["strike"] == float(strike))
+                    (opts["strike"] == strike)
                 ]
                 if match.empty:
-                    # Nearest available strike fallback
-                    subset = opts[opts["instrument_type"] == opt_type].copy()
-                    subset["dist"] = (subset["strike"] - strike).abs()
-                    match = subset.nsmallest(1, "dist")
-                    if match.empty:
-                        continue
-                    found = match.iloc[0]["strike"]
-                    print(f"[MCXResolver] Strike {strike}{opt_type} not found, using nearest: {found}")
+                    continue
 
                 row = match.iloc[0]
                 sym = row["trading_symbol"]

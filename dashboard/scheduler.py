@@ -126,6 +126,7 @@ def _main_scheduler_loop():
 
         any_in_hours = False
         for symbol in active_symbols:
+            if not symbol: continue
             sym_upper = symbol.upper()
             if sym_upper in NSE_INDEX_KEYS or sym_upper in ["NIFTY", "BANKNIFTY", "FINNIFTY"]:
                 cfg = SCHEDULER_HOURS["NSE"]
