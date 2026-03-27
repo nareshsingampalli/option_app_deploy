@@ -169,15 +169,27 @@ class ChartRenderer extends UIComponent {
                     styledLabel = styledLabel.replace(/\(I\)/, '<span style="color: blue">(I)</span>');
                     styledLabel = styledLabel.replace(/\(O\)/, '<span style="color: red">(O)</span>');
                     
-                    let lastLabeledHour = -1;
+                    // One label per 30-min slot, placed at the MID-POINT of each slot
+                    // so it sits visually BETWEEN the :00 / :30 gridline ticks.
+                    //   CE → targets mn%30 ≈ 12-18 in the FIRST half-slot  (:12-:18 and :42-:48 are mid)
+                    //   PE → same target but in the SECOND half-slot (offset by 15 min)
+                    let lastLabeledSlot = -1;
                     t.x.forEach((dtStr, idx) => {
                         const dtObj = new Date(dtStr);
                         if (!isNaN(dtObj.getTime())) {
-                            const hr = dtObj.getHours();
-                            const mn = dtObj.getMinutes();
-                            // CE labels in first half of hour, PE in second half
-                            const minValid = t.isCE ? (mn >= 0 && mn < 30) : (mn >= 30);
-                            if (hr < 15 && hr !== lastLabeledHour && minValid) {
+                            const hr  = dtObj.getHours();
+                            const mn  = dtObj.getMinutes();
+                            // 30-min slot id (0,1,2,... across the day)
+                            const slot     = hr * 2 + (mn >= 30 ? 1 : 0);
+                            // position within the 30-min block (0-29)
+                            const mnInSlot = mn % 30;
+                            // CE labels in slots 0,2,4… (even = :00 blocks), PE in 1,3,5… (:30 blocks)
+                            // Both target the middle (mnInSlot 12-18) of their respective slot
+                            const slotParity = t.isCE ? 0 : 1;
+                            const isTargetSlot = (slot % 2) === slotParity;
+                            const isMid = mnInSlot >= 12 && mnInSlot <= 18;
+
+                            if (hr < 15 && slot !== lastLabeledSlot && isTargetSlot && isMid) {
                                 chartAnnotations.push({
                                     x: dtStr,
                                     y: t.y[idx],
@@ -186,7 +198,7 @@ class ChartRenderer extends UIComponent {
                                     font: { size: 10, color: t.line.color, weight: 'bold' },
                                     yshift: 10
                                 });
-                                lastLabeledHour = hr;
+                                lastLabeledSlot = slot;
                             }
                         }
                     });

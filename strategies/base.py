@@ -181,13 +181,27 @@ class MarketDataPipeline(ABC):
 
         result = df[["ltp", "change_in_ltp", "roc_oi", "roc_volume", "roc_iv", "coi_vol_ratio", "spot_price"]].reset_index()
 
-        # Time-window filter (uses candle OPEN time — correct)
-        result = result[
+        # ── Time-window filtering & user requested Warmup (2 candles) ─────────
+        # Filter for the specific date first
+        if filter_date:
+            result = result[result["date"].dt.strftime("%Y-%m-%d") == filter_date]
+
+        # Extract only the candles within market hours
+        # Note: self.market_start is used here, which is now 09:14 for NSE to allow
+        # the 09:15 candle to compute a non-zero change from a preceding value if present.
+        session_data = result[
             (result["date"].dt.time >= self.market_start) &
             (result["date"].dt.time <= self.market_end)
         ]
-        if filter_date:
-            result = result[result["date"].dt.strftime("%Y-%m-%d") == filter_date]
+
+        # User request: "wait for 2 candle values from the start of market hours"
+        # and "don't start from zero". 
+        # By skipping the first 2 candles of the session, the first displayed record 
+        # will have a valid, non-zero 'change' relative to its predecessor.
+        if len(session_data) > 2:
+            result = session_data.iloc[2:]
+        else:
+            result = session_data
 
         # Shift timestamp to candle CLOSE time so chart shows
         # "close price at close time" rather than at the open time.

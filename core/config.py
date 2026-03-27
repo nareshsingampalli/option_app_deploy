@@ -41,7 +41,7 @@ BSE_INSTRUMENT_URL = _get_instrument_url("market-quote/instruments/exchange/BSE.
 
 CACHE_DIR = "cache"
 # ── Trading time windows (IST, used for data filtering) ─────────────────────
-NSE_MARKET_START = "09:15"
+NSE_MARKET_START = "09:14"
 NSE_MARKET_END   = "15:30"
 MCX_MARKET_START = "09:00"
 MCX_MARKET_END   = "23:50"
