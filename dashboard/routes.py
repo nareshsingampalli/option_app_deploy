@@ -227,15 +227,15 @@ def get_option_data():
                             if pipeline:
                                 pipeline.run(symbol, curr_date, time_str)
                                 
-                                # Check if it was a holiday (404)
-                                if getattr(pipeline.fetcher, "last_status", None) == 404:
-                                    print(f"[API-BG] {curr_date} is a Holiday (404). Trying previous day...")
+                                # Check if it was a holiday (404) or completely empty payload
+                                if getattr(pipeline.fetcher, "last_status", None) == 404 or not os.path.exists(c_path) or os.path.getsize(c_path) == 0:
+                                    print(f"[API-BG] {curr_date} has no data (404/Empty). Trying previous day...")
                                     dt = datetime.strptime(curr_date, "%Y-%m-%d") - timedelta(days=1)
                                     curr_date = dt.strftime("%Y-%m-%d")
                                     retries += 1
                                     continue
                                 
-                                # Success (or non-404 error)
+                                # Success
                                 socketio.emit("data_updated", 
                                               {"prefix": exchange, "symbol": symbol, "date": curr_date, "timestamp": datetime.now().isoformat()},
                                               room=symbol)
@@ -252,7 +252,11 @@ def get_option_data():
                     except Exception as e:
                         print(f"[API-BG] Error: {e}")
                         break
-                
+                if retries >= max_fallback:
+                    socketio.emit("market_status", 
+                                  {"symbol": symbol, "exchange": exchange, "status": "unavailable", "message": f"Historical data from Upstox is currently empty or unavailable. Please try again later."},
+                                  room=symbol)
+
                 try:
                     lock.release()
                 except: pass

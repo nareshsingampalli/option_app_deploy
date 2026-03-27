@@ -37,18 +37,19 @@ class InstrumentSelector extends UIComponent {
             // ── Moneyness chip — color from InstrumentColorService ───────────
             let mTag = '';
             if (inst.strike != null && spotPrice && inst.type) {
-                const k     = parseFloat(inst.strike);
-                const isCE  = inst.type === 'CE';
-                const isATM = Math.abs(k - spotPrice) / spotPrice < 0.0015;
-                const isITM = !isATM && (isCE ? k < spotPrice : k > spotPrice);
-
+                const k       = parseFloat(inst.strike);
+                const isCE    = inst.type === 'CE';
+                const isATM   = Math.abs(k - spotPrice) / spotPrice < 0.0015;
+                const isITM   = !isATM && (isCE ? k < spotPrice : k > spotPrice);
                 let mLabel;
                 if (isATM)      mLabel = 'ATM';
                 else if (isITM) mLabel = 'ITM';
                 else            mLabel = 'OTM';
 
                 // Badge uses the moneyness color as its text + border color
-                mTag = `<span style="font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;margin-left:3px;letter-spacing:0.04em;color:${color};border:1px solid ${color};background:${color.replace(/,[^,]+\)$/, ',0.12)')}">${mLabel}</span>`;
+                let bgOverlay = color.replace(/,\s*[\d.]+\s*\)$/, ', 0.12)');
+                if (bgOverlay === color) { bgOverlay = color + '1a'; } // fallback if not rgba
+                mTag = `<span style="font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;margin-left:3px;letter-spacing:0.04em;color:${color};border:1px solid ${color};background:${bgOverlay}">${mLabel}</span>`;
             }
 
             // ── Row ──────────────────────────────────────────────────────────
@@ -84,15 +85,29 @@ class InstrumentSelector extends UIComponent {
             const label = cb.closest('label');
             if (!label) return;
 
-            // Update name text color
-            const nameSpan = label.querySelector('span[style*="font-weight:600"]');
-            if (nameSpan) nameSpan.style.color = color;
+            const isCE       = cb.dataset.type === 'CE';
+            const moneyColor = isCE ? '#26a641' : '#df3333';
+            
+            // Revert name color to default (remove inline style)
+            const nameSpan = label.querySelector('span:not([style*="font-weight:700"])');
+            if (nameSpan) nameSpan.style.color = '';
 
-            // Update dot
-            const dot = label.querySelector('span:last-child');
-            if (dot) {
-                dot.style.borderColor     = color;
-                dot.style.backgroundColor = color.replace(/,\s*[\d.]+\s*\)$/, ', 0.18)');
+            // Update badge (if it exists)
+            const badge = label.querySelector('span[style*="font-weight:700"]');
+            if (badge) {
+                let bgOverlay = color.replace(/,\s*[\d.]+\s*\)$/, ', 0.12)');
+                if (bgOverlay === color) { bgOverlay = color + '1a'; }
+                badge.style.color           = color;
+                badge.style.borderColor     = color;
+                badge.style.backgroundColor = bgOverlay;
+                
+                // Redetermine label 
+                const strike    = parseFloat(cb.dataset.strike);
+                if (!isNaN(strike)) {
+                    const isATM = Math.abs(strike - spotPrice) / spotPrice < 0.0015;
+                    const isITM = !isATM && (isCE ? strike < spotPrice : strike > spotPrice);
+                    badge.textContent = isATM ? 'ATM' : (isITM ? 'ITM' : 'OTM');
+                }
             }
         });
     }

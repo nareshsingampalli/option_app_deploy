@@ -164,15 +164,10 @@ class ChartRenderer extends UIComponent {
                 t.y = filtered.map(p => p.y);
                 if (t.name !== 'Spot Price' && t.x.length > 0) {
                     // Shorten the on-chart text and apply specific colors ONLY to the moneyness indicator.
-                    let styledLabel = t.name.replace(/^[A-Z]+\s*/, '');
-                    styledLabel = styledLabel.replace(/\(A\)/, '<span style="color: green">(A)</span>');
-                    styledLabel = styledLabel.replace(/\(I\)/, '<span style="color: blue">(I)</span>');
-                    styledLabel = styledLabel.replace(/\(O\)/, '<span style="color: red">(O)</span>');
+                    const moneyColor = t.isCE ? '#26a641' : '#df3333';
+                    const lineColor = t.line.color;
                     
                     // One label per 30-min slot, placed at the MID-POINT of each slot
-                    // so it sits visually BETWEEN the :00 / :30 gridline ticks.
-                    //   CE → targets mn%30 ≈ 12-18 in the FIRST half-slot  (:12-:18 and :42-:48 are mid)
-                    //   PE → same target but in the SECOND half-slot (offset by 15 min)
                     let lastLabeledSlot = -1;
                     t.x.forEach((dtStr, idx) => {
                         const dtObj = new Date(dtStr);
@@ -181,21 +176,39 @@ class ChartRenderer extends UIComponent {
                             const mn  = dtObj.getMinutes();
                             // 30-min slot id (0,1,2,... across the day)
                             const slot     = hr * 2 + (mn >= 30 ? 1 : 0);
-                            // position within the 30-min block (0-29)
                             const mnInSlot = mn % 30;
-                            // CE labels in slots 0,2,4… (even = :00 blocks), PE in 1,3,5… (:30 blocks)
-                            // Both target the middle (mnInSlot 12-18) of their respective slot
                             const slotParity = t.isCE ? 0 : 1;
                             const isTargetSlot = (slot % 2) === slotParity;
                             const isMid = mnInSlot >= 12 && mnInSlot <= 18;
 
-                            if (hr < 15 && slot !== lastLabeledSlot && isTargetSlot && isMid) {
+                            if (slot !== lastLabeledSlot && isTargetSlot && isMid) {
+                                // Extract strike and moneyness indicator from t.name (e.g., 'CRUDEOIL 8500 (A)')
+                                // Result: 8500 in line color, (A) in green/red
+                                const parts = t.name.split(' ');
+                                let strikePart = parts[parts.length - 2];
+                                let moneyPart = parts[parts.length - 1];
+                                
+                                // Fallback if name is differently formatted
+                                if (!moneyPart.includes('(')) {
+                                    strikePart = parts[parts.length - 1];
+                                    moneyPart = '';
+                                }
+
+                                let finalHtml = t.name;
+                                if (moneyPart && /^\([\d.]+\)$/.test(strikePart.replace(/[^\d.]/g, ''))) {
+                                    finalHtml = `<span style="color:${lineColor}">${strikePart}</span> <span style="color:${moneyColor}">${moneyPart}</span>`;
+                                } else {
+                                    // Robust fallback: just color any (A/I/O) in the string
+                                    finalHtml = t.name.replace(/^[A-Z0-9 ]+\s+([\d.]+)/, `<span style="color:${lineColor}">$1</span>`);
+                                    finalHtml = finalHtml.replace(/(\((A|I|O)\))/, `<span style="color:${moneyColor}">$1</span>`);
+                                }
+
                                 chartAnnotations.push({
                                     x: dtStr,
                                     y: t.y[idx],
-                                    text: styledLabel,
+                                    text: finalHtml,
                                     showarrow: false,
-                                    font: { size: 10, color: t.line.color, weight: 'bold' },
+                                    font: { size: 10, weight: 'bold' },
                                     yshift: 10
                                 });
                                 lastLabeledSlot = slot;
@@ -206,11 +219,11 @@ class ChartRenderer extends UIComponent {
             });
 
             // Calculate Bounds
-            const isMCX = selectedInstruments.some(s => ['CRUDEOIL', 'NATURALGAS', 'SILVER', 'GOLD'].some(m => s.includes(m)));
-            const mStartObj = parseDate(`${targetDay}T${isMCX ? '09:00:00' : '09:15:00'}`);
-
             const allTimes = traces.flatMap(t => t.x).map(x => parseDate(x).getTime()).sort((a, b) => a - b);
+            const minTime = allTimes.length > 0 ? allTimes[0] : Date.now();
             const maxTime = allTimes.length > 0 ? allTimes[allTimes.length - 1] : Date.now();
+            
+            const mStartObj = new Date(minTime);
             const maxTimeObj = new Date(maxTime);
 
             // X-Axis Window (Initial Zoom: Last 3 hours)
@@ -241,7 +254,7 @@ class ChartRenderer extends UIComponent {
 
             const layout = {
                 annotations: chartAnnotations,
-                margin: { t: 40, r: 30, l: 60, b: 80 },
+                margin: { t: 40, r: 30, l: 60, b: 50 },
                 height: 550,
                 xaxis: {
                     range: [new Date(viewStart), maxTimeObj],
@@ -251,7 +264,7 @@ class ChartRenderer extends UIComponent {
                     automargin: true,
                     // rangeslider restored per user request.
                     // Note: to zoom Y-axis on mobile, pinch directly on the Y-axis numbers/labels
-                    rangeslider: { visible: true, thickness: 0.15, range: [mStartObj, maxTimeObj] },
+                    rangeslider: { visible: true, thickness: 0.12, range: [mStartObj, maxTimeObj] },
                     type: 'date',
                     tickformat: '%H:%M',
                     hoverformat: '%H:%M',
@@ -268,8 +281,7 @@ class ChartRenderer extends UIComponent {
                 },
                 hovermode: 'closest',
                 dragmode: 'pan',
-                showlegend: false,
-                legend: { orientation: 'h', y: -0.4, x: 0 }
+                showlegend: false
             };
 
             const config = {

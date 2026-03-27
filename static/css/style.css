@@ -183,11 +183,11 @@ input:checked+.slider-toggle:before {
 
 .chart-container {
     background: white;
-    padding: 20px;
-    margin-bottom: 30px; /* Added spacing between charts */
+    padding: 20px 20px 15px 20px;
+    margin-bottom: 25px; 
     border-radius: 8px;
     box-shadow: var(--shadow-sm);
-    min-height: 550px; /* Increased to fit the new taller charts */
+    min-height: 580px; 
 }
 
 .chart-header {

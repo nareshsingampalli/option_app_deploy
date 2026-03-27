@@ -122,6 +122,23 @@ function fetchData(silent = false) {
     const datePicker = document.getElementById('date-picker');
     if (!datePicker.value) return;
 
+    // Block fetching yesterday's or today's data between 12:00 AM and 1:00 AM IST
+    const now = new Date();
+    const ist = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+    const hour = ist.getHours();
+    
+    const yesterday = new Date(ist);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = yesterday.toLocaleDateString('en-CA');
+    const todayStr = ist.toLocaleDateString('en-CA');
+
+    if (hour === 0 && (datePicker.value === yesterdayStr || datePicker.value === todayStr)) {
+        if (!silent) {
+            showNotice("Historical data for the previous day is typically unavailable from the server between 12:00 AM and 1:00 AM IST.");
+        }
+        return;
+    }
+
     if (!silent) {
         // Clear active UI state immediately to prevent showing yesterday/stale data
         chartRenderer.clear ? chartRenderer.clear() : null;
