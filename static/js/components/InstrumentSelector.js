@@ -2,69 +2,134 @@
  * InstrumentSelector — Structural: Composite Pattern
  * Manages the instrument checkbox list and filter buttons.
  * Notifies subscribers via Observer pattern when selection changes.
+ *
+ * Color source: InstrumentColorService (shared with ChartRenderer)
+ *   – instrument name text  → same color
+ *   – circle dot border     → same color (fill at 18% opacity)
+ *   – ATM chip stays golden, ITM/OTM chip is neutral (monochrome)
  */
 class InstrumentSelector extends UIComponent {
     constructor(containerId) {
         super(containerId);
         this._onChange = [];
+        this._lastInstrumentInfo = null;
     }
 
-    onChange(fn) {
-        this._onChange.push(fn);
-    }
+    onChange(fn) { this._onChange.push(fn); }
+    _notify()    { this._onChange.forEach(fn => fn(this.selected())); }
 
-    _notify() {
-        this._onChange.forEach(fn => fn(this.selected()));
-    }
-
-    render(instrumentInfo) {
+    // ── Render ───────────────────────────────────────────────────────────────
+    /**
+     * @param {Array}       instrumentInfo  [{symbol, label, strike, type}]
+     * @param {number|null} spotPrice
+     */
+    render(instrumentInfo, spotPrice = null) {
         if (!this.container) return;
+        this._lastInstrumentInfo = instrumentInfo;
+
+        // Build / rebuild the color map so all three components are in sync
+        InstrumentColorService.build(instrumentInfo, spotPrice);
+
         this.container.innerHTML = '';
         instrumentInfo.forEach(inst => {
+            const color = InstrumentColorService.get(inst.symbol);
+
+            // ── Moneyness chip — color from InstrumentColorService ───────────
+            let mTag = '';
+            if (inst.strike != null && spotPrice && inst.type) {
+                const k     = parseFloat(inst.strike);
+                const isCE  = inst.type === 'CE';
+                const isATM = Math.abs(k - spotPrice) / spotPrice < 0.0015;
+                const isITM = !isATM && (isCE ? k < spotPrice : k > spotPrice);
+
+                let mLabel;
+                if (isATM)      mLabel = 'ATM';
+                else if (isITM) mLabel = 'ITM';
+                else            mLabel = 'OTM';
+
+                // Badge uses the moneyness color as its text + border color
+                mTag = `<span style="font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;margin-left:3px;letter-spacing:0.04em;color:${color};border:1px solid ${color};background:${color.replace(/,[^,]+\)$/, ',0.12)')}">${mLabel}</span>`;
+            }
+
+            // ── Row ──────────────────────────────────────────────────────────
             const div = document.createElement('div');
             div.className = 'control-group';
+
             div.innerHTML = `
-                <label>
-                    <input type="checkbox" class="instrument-cb" 
-                           value="${inst.symbol}" 
-                           data-strike="${inst.strike || ''}"
-                           data-type="${inst.type || ''}"
-                           checked>
-                    ${inst.label || inst.symbol}
+                <label style="display:flex;align-items:center;gap:3px;cursor:pointer;">
+                    <input type="checkbox" class="instrument-cb"
+                           value="${inst.symbol}"
+                           data-strike="${inst.strike ?? ''}"
+                           data-type="${inst.type ?? ''}"
+                           checked style="margin-right:3px;flex-shrink:0;">
+                    <span style="white-space:nowrap;">${inst.label || inst.symbol}</span>
+                    ${mTag}
                 </label>`;
             this.container.appendChild(div);
         });
-        // Notify on any checkbox change
+
         this.container.querySelectorAll('.instrument-cb').forEach(cb => {
             cb.addEventListener('change', () => this._notify());
         });
     }
 
+    // ── Re-color in place (when spot updates without a new instrument load) ──
+    recolor(spotPrice) {
+        if (!this._lastInstrumentInfo) return;
+        InstrumentColorService.build(this._lastInstrumentInfo, spotPrice);
+
+        this.container.querySelectorAll('.instrument-cb').forEach(cb => {
+            const sym   = cb.value;
+            const color = InstrumentColorService.get(sym);
+            const label = cb.closest('label');
+            if (!label) return;
+
+            // Update name text color
+            const nameSpan = label.querySelector('span[style*="font-weight:600"]');
+            if (nameSpan) nameSpan.style.color = color;
+
+            // Update dot
+            const dot = label.querySelector('span:last-child');
+            if (dot) {
+                dot.style.borderColor     = color;
+                dot.style.backgroundColor = color.replace(/,\s*[\d.]+\s*\)$/, ', 0.18)');
+            }
+        });
+    }
+
+    // ── Selection helpers ────────────────────────────────────────────────────
     applySelection(states, spotPrice = null) {
         const checkboxes = Array.from(this.container.querySelectorAll('.instrument-cb'));
-        
-        // Clear all first
+
         checkboxes.forEach(cb => cb.checked = false);
 
         if (states.all) {
             checkboxes.forEach(cb => cb.checked = true);
         } else if (states.none) {
-            // Already cleared
+            if (spotPrice) {
+                const ceGroup = checkboxes.filter(cb => cb.dataset.type === 'CE');
+                const peGroup = checkboxes.filter(cb => cb.dataset.type === 'PE');
+                [ceGroup, peGroup].forEach(group => {
+                    if (group.length > 0) {
+                        group.sort((a, b) =>
+                            Math.abs(parseFloat(a.dataset.strike) - spotPrice) -
+                            Math.abs(parseFloat(b.dataset.strike) - spotPrice)
+                        );
+                        group[0].checked = true;
+                    }
+                });
+            }
         } else {
-            const isIntra = states.intraday;
-            const isScalp = states.scalping;
-            // If neither is true, checking All CE/PE should pick ALL strikes of that type.
-            // If either IS true, we use the ATM/OTM/ITM strike count.
+            const isIntra  = states.intraday;
+            const isScalp  = states.scalping;
             const isDynamic = isIntra || isScalp;
-            const countMap = isScalp ? { atm: 1, otm: 1, itm: 1 } : { atm: 1, otm: 2, itm: 2 };
+            const countMap  = isScalp ? { atm: 1, otm: 1, itm: 1 } : { atm: 1, otm: 2, itm: 2 };
 
-            // Group by type (CE/PE)
             const groups = {
-                'CE': checkboxes.filter(cb => cb.dataset.type === 'CE' && states.ce),
-                'PE': checkboxes.filter(cb => cb.dataset.type === 'PE' && states.pe)
+                CE: checkboxes.filter(cb => cb.dataset.type === 'CE' && states.ce),
+                PE: checkboxes.filter(cb => cb.dataset.type === 'PE' && states.pe),
             };
 
-            // If neither CE nor PE toggle is active, act as if BOTH are active (default)
             if (!states.ce && !states.pe) {
                 groups.CE = checkboxes.filter(cb => cb.dataset.type === 'CE');
                 groups.PE = checkboxes.filter(cb => cb.dataset.type === 'PE');
@@ -75,16 +140,15 @@ class InstrumentSelector extends UIComponent {
                 if (group.length === 0) return;
 
                 if (!isDynamic) {
-                    // Just select the whole group
                     group.forEach(cb => cb.checked = true);
                 } else if (spotPrice) {
-                    // Select relative to spot
-                    group.sort((a,b) => Math.abs(parseFloat(a.dataset.strike) - spotPrice) - Math.abs(parseFloat(b.dataset.strike) - spotPrice));
-
-                    const atm = group[0]; 
+                    group.sort((a, b) =>
+                        Math.abs(parseFloat(a.dataset.strike) - spotPrice) -
+                        Math.abs(parseFloat(b.dataset.strike) - spotPrice)
+                    );
+                    const atm    = group[0];
                     if (atm) atm.checked = true;
-
-                    const others = group.slice(1);
+                    const others  = group.slice(1);
                     const itmList = others.filter(cb => {
                         const k = parseFloat(cb.dataset.strike);
                         return optType === 'CE' ? k < spotPrice : k > spotPrice;
@@ -93,13 +157,12 @@ class InstrumentSelector extends UIComponent {
                         const k = parseFloat(cb.dataset.strike);
                         return optType === 'CE' ? k > spotPrice : k < spotPrice;
                     });
-
                     itmList.forEach((cb, i) => { if (i < countMap.itm) cb.checked = true; });
                     otmList.forEach((cb, i) => { if (i < countMap.otm) cb.checked = true; });
                 }
             });
         }
-        
+
         this._notify();
     }
 

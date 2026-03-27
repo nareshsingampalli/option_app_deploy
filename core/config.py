@@ -47,7 +47,7 @@ MCX_MARKET_START = "09:00"
 MCX_MARKET_END   = "23:50"
 
 # ── Data Fetching Configuration ──────────────────────────────────────────────
-CANDLE_INTERVAL_MINUTES = 3    # Single source of truth for fetchers, scheduler, and chart labels
+CANDLE_INTERVAL_MINUTES = 15    # Single source of truth for fetchers, scheduler, and chart labels
 
 # ── Background scheduler hours ───────────────────────────────────────────────
 SCHEDULER_HOURS: dict[str, dict] = {
@@ -64,7 +64,7 @@ MCX_STRIKE_STEP     = 50     # ATM rounding step for MCX
 # Single source of truth for the Upstox API credentials.
 # The dashboard uses /api/refresh-token to reload these from the .env file at runtime.
 UPSTOX_API_URL      = os.getenv("UPSTOX_API_URL", "https://api.upstox.com")
-UPSTOX_ACCESS_TOKEN =  "eyJ0eXAiOiJKV1QiLCJrZXlfaWQiOiJza192MS4wIiwiYWxnIjoiSFMyNTYifQ.eyJzdWIiOiI4Q0FRNzUiLCJqdGkiOiI2OWJkZjgxZTg3YTgwYjEzMWJkZTc4YjIiLCJpc011bHRpQ2xpZW50IjpmYWxzZSwiaXNQbHVzUGxhbiI6dHJ1ZSwiaWF0IjoxNzc0MDU3NTAyLCJpc3MiOiJ1ZGFwaS1nYXRld2F5LXNlcnZpY2UiLCJleHAiOjE3NzQxMzA0MDB9.I5xP05St5ComkD9qTnhQevazXBSkOFqrzOFHe5mH0TE"
+UPSTOX_ACCESS_TOKEN =  "eyJ0eXAiOiJKV1QiLCJrZXlfaWQiOiJza192MS4wIiwiYWxnIjoiSFMyNTYifQ.eyJzdWIiOiI4Q0FRNzUiLCJqdGkiOiI2OWM2OWUwYmUxZjEwMjNhMTRlZDhmYjgiLCJpc011bHRpQ2xpZW50IjpmYWxzZSwiaXNQbHVzUGxhbiI6dHJ1ZSwiaWF0IjoxNzc0NjI0MjY3LCJpc3MiOiJ1ZGFwaS1nYXRld2F5LXNlcnZpY2UiLCJleHAiOjE3NzQ2NDg4MDB9.6smtqVAgCXBO4mkZg07gl5lILOUYQrnvl7RROWX3WFo"
 # Location of the .env file (used by refresh-token endpoint)
 ENV_FILE = os.getenv("ENV_FILE") or "/home/ubuntu/refactor_app/.env"
 if not os.path.exists(ENV_FILE):

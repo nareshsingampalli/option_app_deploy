@@ -65,7 +65,14 @@ dataService.subscribe((records, isInitial) => {
                 return { symbol: sym, label: label, strike: strike, type: type };
             });
             if (instrumentInfo.length > 0) {
-                instrumentSelector.render(instrumentInfo);
+                // Read spot price so colors reflect ITM/ATM/OTM immediately
+                const spotEl = document.getElementById('spot-price-display');
+                let spotForRender = null;
+                if (spotEl && spotEl.textContent) {
+                    const m = spotEl.textContent.match(/[\d.]+/);
+                    if (m) spotForRender = parseFloat(m[0]);
+                }
+                instrumentSelector.render(instrumentInfo, spotForRender);
                 currentRenderedSymbol = currentSymbol;
             }
         } catch (e) {
@@ -73,7 +80,8 @@ dataService.subscribe((records, isInitial) => {
         }
     }
 
-    // 2. Render charts
+    // 2. Apply active filters (e.g. Scalping default) and render charts
+    if (window.applyCurrentFilters) window.applyCurrentFilters();
     renderCharts();
 });
 
@@ -242,9 +250,8 @@ window.handleSelectorClick = (type) => {
     // - 'ce', 'pe', 'intraday', 'scalping' are toggles.
 
     if (type === 'all' || type === 'none') {
-        const isAlreadyActive = btn.classList.contains('active');
         allButtons.forEach(b => b.classList.remove('active'));
-        if (!isAlreadyActive) btn.classList.add('active');
+        btn.classList.add('active');
     } else {
         // Deactivate 'all' and 'none' if any other toggle is clicked
         document.getElementById('btn-all').classList.remove('active');
@@ -257,6 +264,10 @@ window.handleSelectorClick = (type) => {
         btn.classList.toggle('active');
     }
 
+    window.applyCurrentFilters();
+};
+
+window.applyCurrentFilters = () => {
     // Extract current state
     const states = {
         all: document.getElementById('btn-all').classList.contains('active'),

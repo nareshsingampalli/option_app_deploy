@@ -8,31 +8,15 @@ class ChartRenderer extends UIComponent {
         this._metrics = metricSelector;
     }
 
+    /**
+     * Returns { color, dash } for a given instrument symbol.
+     * Delegates to InstrumentColorService so the chart line color
+     * is identical to the sidebar name text and dot circle.
+     */
     _colorFor(symbol) {
-        let hash = 0;
-        for (let i = 0; i < symbol.length; i++) {
-            hash = symbol.charCodeAt(i) + ((hash << 5) - hash);
-        }
-        const absHash = Math.abs(hash);
-        const isCE = symbol.includes('CE');
-        const isPE = symbol.includes('PE');
-
-        if (isCE) {
-            // Broad hue range: 85 (yellow-green) to 155 (spring green)
-            const h = 85 + (absHash % 71);
-            // Saturation: 60 to 100
-            const s = 60 + (absHash % 41);
-            // Lightness: 30 to 65
-            const l = 30 + (absHash % 36);
-            return { color: `hsl(${h}, ${s}%, ${l}%)`, dash: 'solid' };
-        } else if (isPE) {
-            // Broad hue range: 340 (pinks) to 30 (oranges)
-            const h = (340 + (absHash % 51)) % 360;
-            const s = 60 + (absHash % 41);
-            const l = 35 + (absHash % 36);
-            return { color: `hsl(${h}, ${s}%, ${l}%)`, dash: 'dash' };
-        }
-        return { color: '#888888', dash: 'solid' };
+        const color = (window.InstrumentColorService && InstrumentColorService.get(symbol))
+            || (symbol.includes('CE') ? 'hsla(130,65%,35%,0.85)' : 'hsla(0,65%,40%,0.85)');
+        return { color, dash: 'solid' };
     }
 
     clear() {
@@ -66,6 +50,25 @@ class ChartRenderer extends UIComponent {
         const lastRow = sortedRaw[sortedRaw.length - 1];
         const targetDay = lastRow.date.split(' ')[0];
 
+        // Determine latest spot price and ATM strike for moneyness labels
+        let latestSpotPrice = null;
+        for (let i = sortedRaw.length - 1; i >= 0; i--) {
+            if (sortedRaw[i].spot_price) {
+                latestSpotPrice = sortedRaw[i].spot_price;
+                break;
+            }
+        }
+
+        let atmStrike = null;
+        if (latestSpotPrice !== null) {
+            const allStrikes = [...new Set(rawData.map(r => parseFloat(r.strike)).filter(s => !isNaN(s)))];
+            if (allStrikes.length > 0) {
+                atmStrike = allStrikes.reduce((prev, curr) => 
+                    Math.abs(curr - latestSpotPrice) < Math.abs(prev - latestSpotPrice) ? curr : prev
+                );
+            }
+        }
+
         // Group data by symbol and determine clean labels
         const grouped = {};
         const symbolLabels = {};
@@ -74,11 +77,27 @@ class ChartRenderer extends UIComponent {
                 if (!grouped[row.symbol]) {
                     grouped[row.symbol] = { rows: [] };
 
-                    // Generate clean label: NAME + STRIKE (Removing Date, CE, PE as requested)
                     const baseMatch = row.symbol.match(/^[A-Z]+/);
                     const baseSym = baseMatch ? baseMatch[0] : '';
-                    const strike = row.strike || '';
-                    symbolLabels[row.symbol] = `${baseSym} ${strike}`.trim();
+                    const strikeStr = row.strike || '';
+                    const strikeVal = parseFloat(strikeStr);
+                    
+                    let moneyNess = '';
+                    if (atmStrike !== null && !isNaN(strikeVal)) {
+                        const isCE = row.symbol.includes('CE');
+                        const isPE = row.symbol.includes('PE');
+                        
+                        if (strikeVal === atmStrike) {
+                            moneyNess = ' (A)';
+                        } else if (isCE) {
+                            moneyNess = strikeVal < atmStrike ? ' (I)' : ' (O)';
+                        } else if (isPE) {
+                            moneyNess = strikeVal > atmStrike ? ' (I)' : ' (O)';
+                        }
+                    }
+
+                    // Generate clean label: NAME + STRIKE + MONEYNESS
+                    symbolLabels[row.symbol] = `${baseSym} ${strikeStr}${moneyNess}`.trim();
                 }
                 grouped[row.symbol].rows.push(row);
             }
@@ -137,11 +156,41 @@ class ChartRenderer extends UIComponent {
             }
 
             // Filter Traces to TODAY only
+            let chartAnnotations = [];
             traces.forEach(t => {
                 const filtered = t.x.map((x, i) => ({ x, y: t.y[i] }))
                     .filter(pt => pt.x.startsWith(targetDay));
                 t.x = filtered.map(p => p.x);
                 t.y = filtered.map(p => p.y);
+                if (t.name !== 'Spot Price' && t.x.length > 0) {
+                    // Shorten the on-chart text and apply specific colors ONLY to the moneyness indicator.
+                    let styledLabel = t.name.replace(/^[A-Z]+\s*/, '');
+                    styledLabel = styledLabel.replace(/\(A\)/, '<span style="color: green">(A)</span>');
+                    styledLabel = styledLabel.replace(/\(I\)/, '<span style="color: blue">(I)</span>');
+                    styledLabel = styledLabel.replace(/\(O\)/, '<span style="color: red">(O)</span>');
+                    
+                    let lastLabeledHour = -1;
+                    t.x.forEach((dtStr, idx) => {
+                        const dtObj = new Date(dtStr);
+                        if (!isNaN(dtObj.getTime())) {
+                            const hr = dtObj.getHours();
+                            const mn = dtObj.getMinutes();
+                            // CE labels in first half of hour, PE in second half
+                            const minValid = t.isCE ? (mn >= 0 && mn < 30) : (mn >= 30);
+                            if (hr < 15 && hr !== lastLabeledHour && minValid) {
+                                chartAnnotations.push({
+                                    x: dtStr,
+                                    y: t.y[idx],
+                                    text: styledLabel,
+                                    showarrow: false,
+                                    font: { size: 10, color: t.line.color, weight: 'bold' },
+                                    yshift: 10
+                                });
+                                lastLabeledHour = hr;
+                            }
+                        }
+                    });
+                }
             });
 
             // Calculate Bounds
@@ -179,6 +228,7 @@ class ChartRenderer extends UIComponent {
             }
 
             const layout = {
+                annotations: chartAnnotations,
                 margin: { t: 40, r: 30, l: 60, b: 80 },
                 height: 550,
                 xaxis: {
@@ -204,7 +254,7 @@ class ChartRenderer extends UIComponent {
                     tickformat: (metric === 'spot_price' || (yRange && yRange[1] > 1000)) ? '.5~s' : '.2f',
                     hoverformat: '.2f'
                 },
-                hovermode: 'x unified',
+                hovermode: 'closest',
                 dragmode: 'pan',
                 showlegend: false,
                 legend: { orientation: 'h', y: -0.4, x: 0 }
