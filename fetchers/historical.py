@@ -101,7 +101,7 @@ class HistoricalCandleFetcher(BaseCandleFetcher):
         # Fetch from the previous trading day to provide a non-resetting baseline for ROC calculations.
         from_date = self._get_prev_trading_day(date_str)
         df = self.fetch_single(instrument_key, "minutes", self.interval, date_str, from_date)
-        if df is None or df.empty:
+        if (df is None or df.empty) and getattr(self, "last_status", None) != 429:
             df = self.fetch_single(instrument_key, "minutes", 1, date_str, from_date)
             if df is not None and not df.empty:
                 self.used_fallback = True

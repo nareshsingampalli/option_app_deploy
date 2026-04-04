@@ -82,5 +82,5 @@ def reload_access_token():
     return False
 
 # ── API rate limits ──────────────────────────────────────────────────────────
-UPSTOX_RATE_LIMIT_CALLS  = 15
-UPSTOX_RATE_LIMIT_PERIOD = 1.5   # seconds
+UPSTOX_RATE_LIMIT_CALLS  = 5
+UPSTOX_RATE_LIMIT_PERIOD = 1.1   # seconds

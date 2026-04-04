@@ -15,7 +15,7 @@ import threading
 _api_rl_lock = threading.Lock()
 _api_rl_wait_until = 0.0
 
-def retry_api_call(max_retries: int = 3, initial_delay: float = 1.0, max_duration: float = 280.0):
+def retry_api_call(max_retries: int = 3, initial_delay: float = 3.0, max_duration: float = 280.0):
     """Decorator to retry API calls on 429 (Rate Limit) and transient 5xx errors."""
     def decorator(func):
         @functools.wraps(func)
@@ -47,18 +47,19 @@ def retry_api_call(max_retries: int = 3, initial_delay: float = 1.0, max_duratio
                     if getattr(e, "status", None) in (429, 500, 502, 503, 504):
                         retries += 1
                         if retries > max_retries:
-                            print(f"[Retry] Resetting delay to {initial_delay}s after {max_retries} attempts.")
-                            retries = 1
-                            delay = initial_delay
+                            print(f"[Retry] Maximum retry attempts reached ({max_retries}). Still hitting 429. Continuing backoff...")
                         
-                        print(f"[Retry] API Error {e.status} detected. All threads pausing for {delay}s... (Attempt {retries}/{max_retries} before reset)")
+                        print(f"[Retry] API Error {e.status} detected. All threads pausing for {delay}s... (Attempt {retries}/{max_retries})")
                         
                         with _api_rl_lock:
                             new_wait_until = time.time() + delay
                             if new_wait_until > _api_rl_wait_until:
                                 _api_rl_wait_until = new_wait_until
-                                
-                        delay *= 2  # Exponential backoff
+                        
+                        # Immediate sleep for this thread to synchronize with others
+                        time.sleep(delay)
+                        
+                        delay = min(delay * 2, 60.0)  # Exponential backoff capped at 60s
                     else:
                         raise e
                 except Exception as e:

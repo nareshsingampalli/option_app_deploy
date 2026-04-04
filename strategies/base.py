@@ -111,6 +111,7 @@ class MarketDataPipeline(ABC):
     def _process_all(
         self, instruments: list[Instrument], spot_map: dict, filter_date: str
     ) -> tuple[list[dict], bool]:
+        import time
         rows: list[dict] = []
         any_fallback = getattr(self.fetcher, "used_fallback", False)
 
@@ -129,6 +130,9 @@ class MarketDataPipeline(ABC):
                     row["option_type"] = inst.option_type
                     row["expiry_text"] = inst.expiry_str
                     rows.append(row)
+                
+                # Small artificial delay to spread burst out over the rate-limiting period
+                time.sleep(0.1)
             except Exception as e:
                 print(f"[Pipeline] Error on {inst.symbol}: {e}")
         return rows, any_fallback
