@@ -222,6 +222,7 @@ def get_option_data():
                 
                 while retries < max_fallback:
                     suffix = f"_{time_str.replace(':', '')}" if time_str else ""
+                    suffix += f"_int{interval}"
                     c_path = os.path.join(os.getcwd(), dir_name, f"{prefix}_{sym}_tabular_{curr_date}{suffix}.csv")
                     m_path = os.path.join(os.getcwd(), dir_name, f"{prefix}_{sym}_meta_{curr_date}{suffix}.json")
                     
@@ -240,8 +241,10 @@ def get_option_data():
                                 
                                 # Check if it was a holiday (404) or completely empty payload
                                 if getattr(pipeline.fetcher, "last_status", None) == 404 or not os.path.exists(c_path) or os.path.getsize(c_path) == 0:
-                                    print(f"[API-BG] {curr_date} has no data (404/Empty). Trying previous day...")
+                                    from core.utils import get_last_trading_day
+                                    print(f"[API-BG] {curr_date} has no data (404/Empty). Immediately switching to previous trading day...")
                                     dt = datetime.strptime(curr_date, "%Y-%m-%d") - timedelta(days=1)
+                                    dt = get_last_trading_day(dt)
                                     curr_date = dt.strftime("%Y-%m-%d")
                                     retries += 1
                                     continue
@@ -375,6 +378,7 @@ def handle_join_symbol(data):
     sid = request.sid
     symbol = data.get("symbol", "").upper()
     exchange = data.get("exchange", "").upper()  # e.g. "NSE", "MCX", "BSE"
+    interval = int(data.get("interval", "15"))
     if not symbol:
         return
 
@@ -395,10 +399,10 @@ def handle_join_symbol(data):
     # After a long absence (e.g. phone switch tabs), the client missed data_updated
     # events. Instead of waiting up to 3 min for the next scheduler cycle, we
     # check the state RIGHT NOW and inform the client immediately.
-    _notify_rejoining_client(sid, symbol, exchange)
+    _notify_rejoining_client(sid, symbol, exchange, interval)
 
 
-def _notify_rejoining_client(sid: str, symbol: str, exchange: str):
+def _notify_rejoining_client(sid: str, symbol: str, exchange: str, interval: int = 15):
     """
     Immediately tell a rejoining client what data is available.
 
@@ -443,8 +447,8 @@ def _notify_rejoining_client(sid: str, symbol: str, exchange: str):
     prefix   = "mcx" if exchange == "MCX" else "option"
     dir_name = "mcx_data" if exchange == "MCX" else "nse_data"
     sym_lc   = symbol.lower()
-    csv_path  = os.path.join(os.getcwd(), dir_name, f"{prefix}_{sym_lc}_tabular_{trading_day}_int15.csv")
-    meta_path = os.path.join(os.getcwd(), dir_name, f"{prefix}_{sym_lc}_meta_{trading_day}_int15.json")
+    csv_path  = os.path.join(os.getcwd(), dir_name, f"{prefix}_{sym_lc}_tabular_{trading_day}_int{interval}.csv")
+    meta_path = os.path.join(os.getcwd(), dir_name, f"{prefix}_{sym_lc}_meta_{trading_day}_int{interval}.json")
 
     file_exists = os.path.exists(csv_path)
     file_age_s  = (time.time() - os.path.getmtime(csv_path)) if file_exists else None

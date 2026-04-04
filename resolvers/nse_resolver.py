@@ -122,9 +122,29 @@ class NSEExpiredResolver(InstrumentResolver):
         if not contracts:
             return [], target_expiry_dt, True
 
-        cdf = pd.DataFrame([c if isinstance(c, dict) else c.__dict__ for c in contracts])
+        # Convert SDK objects to DataFrame robustly
+        cdf = pd.DataFrame([c.to_dict() if hasattr(c, 'to_dict') else (c if isinstance(c, dict) else c.__dict__) for c in contracts])
+        
+        # Robust column mapping for field name variations (SDK specific)
+        if "strike_price" not in cdf.columns and "strike" in cdf.columns:
+            cdf["strike_price"] = cdf["strike"]
+        
+        if "trading_symbol" not in cdf.columns and "tradingsymbol" in cdf.columns:
+            cdf["trading_symbol"] = cdf["tradingsymbol"]
+
+        if "option_type" not in cdf.columns and "instrument_type" in cdf.columns:
+            # Some SDK calls return CE/PE in instrument_type
+            first_val = str(cdf["instrument_type"].iloc[0])
+            if first_val in ("CE", "PE"):
+                cdf["option_type"] = cdf["instrument_type"]
+        
+        # Ensure we have the basic columns
+        if "strike_price" not in cdf.columns or "option_type" not in cdf.columns:
+            print(f"[NSEExpiredResolver] ERROR: Missing columns: {cdf.columns.tolist()}")
+            return [], target_expiry_dt, True
+
         cdf["strike"] = cdf["strike_price"].astype(float)
-        cdf["type"]   = cdf["instrument_type"]
+        cdf["type"]   = cdf["option_type"] # Use corrected field
 
         strikes  = sorted(cdf["strike"].unique())
         atm_idx  = int(np.abs(np.array(strikes) - spot_price).argmin())

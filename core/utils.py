@@ -15,7 +15,7 @@ import threading
 _api_rl_lock = threading.Lock()
 _api_rl_wait_until = 0.0
 
-def retry_api_call(max_retries: int = 3, initial_delay: float = 3.0, max_duration: float = 280.0):
+def retry_api_call(max_retries: int = 3, initial_delay: float = 2.0, max_duration: float = 600.0):
     """Decorator to retry API calls on 429 (Rate Limit) and transient 5xx errors."""
     def decorator(func):
         @functools.wraps(func)

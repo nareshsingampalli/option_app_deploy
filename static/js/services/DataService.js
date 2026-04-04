@@ -108,16 +108,16 @@ class DataService {
         this._currentSymbol = symbol;
         this._currentPrefix = prefix;
         if (this.socket && this.socket.connected) {
-            console.log("[DataService] WS Re-joining room:", symbol);
-            this.socket.emit("join_symbol", { symbol: symbol, exchange: prefix });
+            const params = window.buildParams ? window.buildParams() : { interval: 15 };
+            this.socket.emit("join_symbol", { symbol: symbol, exchange: prefix, interval: params.interval });
             return;
         }
 
         try {
             this.socket = io();
             this.socket.on('connect', () => {
-                console.log("[DataService] WS Connected. Joining:", this._currentSymbol);
-                this.socket.emit("join_symbol", { symbol: this._currentSymbol, exchange: this._currentPrefix });
+                const params = window.buildParams ? window.buildParams() : { interval: 15 };
+                this.socket.emit("join_symbol", { symbol: this._currentSymbol, exchange: this._currentPrefix, interval: params.interval });
             });
 
             this.socket.on('data_updated', (data) => {

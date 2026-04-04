@@ -10,8 +10,8 @@ from fetchers.base import BaseCandleFetcher
 class ExpiredCandleFetcher(BaseCandleFetcher):
     """SDK-based client for expired instrument endpoints."""
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, interval: int = 15):
+        super().__init__(interval=interval)
         # Initialize the ExpiredInstrumentApi using the shared api_client from the base class
         self._api = upstox_client.ExpiredInstrumentApi(self._api_client)
 
