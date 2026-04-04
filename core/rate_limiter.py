@@ -27,16 +27,26 @@ class _RateLimiter:
     def __call__(self, func: Callable) -> Callable:
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
+            sleep_for = 0
             with self._lock:
                 now = time.monotonic()
                 # Drop timestamps older than one period
                 self._calls = [t for t in self._calls if now - t < self.period]
+                
                 if len(self._calls) >= self.max_calls:
+                    # Calculate how long we must wait until the oldest slot expires
                     sleep_for = self.period - (now - self._calls[0])
-                    if sleep_for > 0:
-                        time.sleep(sleep_for)
+                    # Mark the 'future' timestamp we will use after sleeping
+                    call_ts = now + max(0, sleep_for)
                     self._calls = self._calls[1:]
-                self._calls.append(time.monotonic())
+                else:
+                    call_ts = now
+                
+                self._calls.append(call_ts)
+            
+            if sleep_for > 0:
+                time.sleep(sleep_for)
+                
             return func(*args, **kwargs)
         return wrapper
 
