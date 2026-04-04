@@ -45,20 +45,17 @@ def view_logs():
 def refresh_token():
     try:
         import glob
-        from dotenv import load_dotenv
         import core.config
         
-        # Use centralized location logic from core.config
-        env_file = core.config.ENV_FILE
-        
-        print(f"[API] Reloading token from {env_file}")
-        load_dotenv(env_file, override=True)
+        print(f"[API] Refreshing token state...")
         
         # Update the live config variable using the centralized helper
+        # Since we are decoupled from .env, this just returns True now
+        # as MQ handled the actual update.
         if core.config.reload_access_token():
-            print(f"[API] New token loaded into core.config.")
+            print(f"[API] Live config state verified.")
         else:
-            print("[API] WARNING: UPSTOX_ACCESS_TOKEN not found in environment after reload.")
+            print("[API] WARNING: Failed to verify live config state.")
 
         # Clear out any cached 'Invalid token' errors in all recent metadata files
         for dr in ["nse_data", "mcx_data"]:
