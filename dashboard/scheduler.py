@@ -72,50 +72,52 @@ def _main_scheduler_loop():
         cur_min = now.minute
         active_symbols = get_active_symbols()
         
-        for symbol in active_symbols:
-            if not symbol:
-                continue
-            sym_upper = symbol.upper()
-            # Determine exchange and config
-            if sym_upper in NSE_INDEX_KEYS or sym_upper in ["NIFTY", "BANKNIFTY", "FINNIFTY"]:
-                cfg = SCHEDULER_HOURS["NSE"]
-                prefix = "NSE"
-            elif sym_upper in MCX_FUT_KEYS or sym_upper in ["CRUDEOIL", "NATURALGAS", "SILVER", "GOLD"]:
-                cfg = SCHEDULER_HOURS["MCX"]
-                prefix = "MCX"
-            elif sym_upper in ["SENSEX", "BANKEX"]:
-                cfg = SCHEDULER_HOURS["BSE"]
-                prefix = "BSE"
-            else:
-                continue # Unknown symbol
+        # Only proceed if today is a trading day (skip weekends and holidays)
+        from core.utils import get_last_trading_day
+        is_trading_day = (get_last_trading_day(now).strftime("%Y-%m-%d") == now.strftime("%Y-%m-%d"))
 
-            # Check market hours
-            start_t = datetime.strptime(cfg["start"], "%H:%M:%S").time()
-            end_t   = datetime.strptime(cfg["end"],   "%H:%M:%S").time()
-            
-            if _secs(start_t) <= _secs(now.time()) <= _secs(end_t):
-                # Centralized interval cycle
-                is_startup = (now.hour == 9 and 16 <= now.minute <= 20)
-                is_regular = (now.minute % CANDLE_INTERVAL_MINUTES == 0)
+        if is_trading_day:
+            for symbol in active_symbols:
+                if not symbol: continue
+                sym_upper = symbol.upper()
+                
+                # Determine exchange and config
+                if sym_upper in NSE_INDEX_KEYS or sym_upper in ["NIFTY", "BANKNIFTY", "FINNIFTY"]:
+                    cfg = SCHEDULER_HOURS["NSE"]
+                    prefix = "NSE"
+                elif sym_upper in MCX_FUT_KEYS or sym_upper in ["CRUDEOIL", "NATURALGAS", "SILVER", "GOLD"]:
+                    cfg = SCHEDULER_HOURS["MCX"]
+                    prefix = "MCX"
+                elif sym_upper in ["SENSEX", "BANKEX"]:
+                    cfg = SCHEDULER_HOURS["BSE"]
+                    prefix = "BSE"
+                else: continue
 
-                if (is_startup or is_regular) and last_fetch_times.get(symbol) != cur_min:
-                    # Stagger burst once per minute cycle
-                    # Wait 10s at boundary: gives Upstox time to finalize the just-closed candle
-                    # Wait 30s at %5 boundaries: avoid API congestion on 5-min peaks
-                    if last_delay_min != cur_min:
-                        delay = 10  # default: wait for Upstox to finalize candle
-                        if now.minute % 5 == 0: delay = 30  # 5-min congestion avoidance takes priority
-                        
-                        print(f"[Scheduler] Minute {now.minute}: pausing {delay}s before burst (candle finalization)...")
-                        time.sleep(delay)
-                        last_delay_min = cur_min
+                # Check market hours
+                start_t = datetime.strptime(cfg["start"], "%H:%M:%S").time()
+                end_t   = datetime.strptime(cfg["end"],   "%H:%M:%S").time()
+                
+                if _secs(start_t) <= _secs(now.time()) <= _secs(end_t):
+                    # Centralized interval cycle
+                    is_startup = (now.hour == 9 and 16 <= now.minute <= 20)
+                    is_regular = (now.minute % CANDLE_INTERVAL_MINUTES == 0)
 
-                    threading.Thread(
-                        target=_run_fetch, 
-                        args=(symbol, prefix),
-                        daemon=True
-                    ).start()
-                    last_fetch_times[symbol] = cur_min
+                    if (is_startup or is_regular) and last_fetch_times.get(symbol) != cur_min:
+                        # Stagger burst once per minute cycle
+                        if last_delay_min != cur_min:
+                            delay = 10  # default: wait for Upstox to finalize candle
+                            if now.minute % 5 == 0: delay = 30  # 5-min congestion avoidance
+                            
+                            print(f"[Scheduler] Minute {now.minute}: pausing {delay}s before burst...")
+                            time.sleep(delay)
+                            last_delay_min = cur_min
+
+                        threading.Thread(
+                            target=_run_fetch, 
+                            args=(symbol, prefix),
+                            daemon=True
+                        ).start()
+                        last_fetch_times[symbol] = cur_min
         
         # Check if any symbol was processed (in market hours)
         if not active_symbols:
@@ -125,22 +127,26 @@ def _main_scheduler_loop():
             continue
 
         any_in_hours = False
-        for symbol in active_symbols:
-            if not symbol: continue
-            sym_upper = symbol.upper()
-            if sym_upper in NSE_INDEX_KEYS or sym_upper in ["NIFTY", "BANKNIFTY", "FINNIFTY"]:
-                cfg = SCHEDULER_HOURS["NSE"]
-            elif sym_upper in MCX_FUT_KEYS or sym_upper in ["CRUDEOIL", "NATURALGAS", "SILVER", "GOLD"]:
-                cfg = SCHEDULER_HOURS["MCX"]
-            elif sym_upper in ["SENSEX", "BANKEX"]:
-                cfg = SCHEDULER_HOURS["BSE"]
-            else: continue
-            
-            start_t = datetime.strptime(cfg["start"], "%H:%M:%S").time()
-            end_t   = datetime.strptime(cfg["end"],   "%H:%M:%S").time()
-            if _secs(start_t) <= _secs(now.time()) <= _secs(end_t):
-                any_in_hours = True
-                break
+        from core.utils import get_last_trading_day
+        is_trading_day = (get_last_trading_day(now).strftime("%Y-%m-%d") == now.strftime("%Y-%m-%d"))
+
+        if is_trading_day:
+            for symbol in active_symbols:
+                if not symbol: continue
+                sym_upper = symbol.upper()
+                if sym_upper in NSE_INDEX_KEYS or sym_upper in ["NIFTY", "BANKNIFTY", "FINNIFTY"]:
+                    cfg = SCHEDULER_HOURS["NSE"]
+                elif sym_upper in MCX_FUT_KEYS or sym_upper in ["CRUDEOIL", "NATURALGAS", "SILVER", "GOLD"]:
+                    cfg = SCHEDULER_HOURS["MCX"]
+                elif sym_upper in ["SENSEX", "BANKEX"]:
+                    cfg = SCHEDULER_HOURS["BSE"]
+                else: continue
+                
+                start_t = datetime.strptime(cfg["start"], "%H:%M:%S").time()
+                end_t   = datetime.strptime(cfg["end"],   "%H:%M:%S").time()
+                if _secs(start_t) <= _secs(now.time()) <= _secs(end_t):
+                    any_in_hours = True
+                    break
         
         if not any_in_hours:
             # Market is closed for all watched symbols. 

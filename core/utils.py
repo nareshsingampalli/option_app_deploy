@@ -128,20 +128,34 @@ def ist_now():
     from datetime import datetime
     return datetime.now(pytz.timezone('Asia/Kolkata'))
 
+# ── Holiday Handling (NSE/MCX 2026) ──────────────────────────────────────────
+TRADING_HOLIDAYS_2026 = {
+    "2026-01-26", # Republic Day
+    "2026-03-30", # Holi
+    "2026-04-03", # Good Friday
+    "2026-04-14", # Ambedkar Jayanti
+    "2026-05-01", # Maharashtra Day
+    "2026-10-02", # Gandhi Jayanti
+    "2026-12-25", # Christmas
+}
+
 def get_last_trading_day(dt=None):
     """
-    If dt (default today) is a weekend, returns the preceding Friday.
-    Returns datetime object.
+    Returns the most recent trading day, skipping weekends and known holidays.
     """
     from datetime import timedelta
     if dt is None:
         dt = ist_now()
     
-    # weekday(): 0=Monday, 5=Saturday, 6=Sunday
-    wd = dt.weekday()
-    if wd == 5: # Saturday
-        return dt - timedelta(days=1)
-    elif wd == 6: # Sunday
-        return dt - timedelta(days=2)
-    return dt
+    curr = dt
+    while True:
+        # 0=Monday, 5=Saturday, 6=Sunday
+        wd = curr.weekday()
+        ds = curr.strftime("%Y-%m-%d")
+        
+        if wd >= 5 or ds in TRADING_HOLIDAYS_2026:
+            curr -= timedelta(days=1)
+        else:
+            break
+    return curr
 
