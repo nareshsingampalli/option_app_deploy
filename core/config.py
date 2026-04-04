@@ -66,22 +66,14 @@ MCX_STRIKE_STEP     = 50     # ATM rounding step for MCX
 # Single source of truth for the Upstox API credentials.
 # The dashboard uses /api/refresh-token to reload these from the .env file at runtime.
 UPSTOX_API_URL      = os.getenv("UPSTOX_API_URL", "https://api.upstox.com")
-UPSTOX_ACCESS_TOKEN =  "eyJ0eXAiOiJKV1QiLCJrZXlfaWQiOiJza192MS4wIiwiYWxnIjoiSFMyNTYifQ.eyJzdWIiOiI4Q0FRNzUiLCJqdGkiOiI2OWQwNTcwYjQ5ODE3NTM2MmYxM2FiNjYiLCJpc011bHRpQ2xpZW50IjpmYWxzZSwiaXNQbHVzUGxhbiI6dHJ1ZSwiaWF0IjoxNzc1MjYxNDUxLCJpc3MiOiJ1ZGFwaS1nYXRld2F5LXNlcnZpY2UiLCJleHAiOjE3NzUzNDAwMDB9.rJEhbPxXjFa1it75VfK_zdf44sBLNSocP3d90WU9xn4"
-# Location of the .env file (used by refresh-token endpoint)
-ENV_FILE = os.getenv("ENV_FILE") or "/home/ubuntu/refactor_app/.env"
-if not os.path.exists(ENV_FILE):
-    _local = os.path.join(os.getcwd(), ".env")
-    if os.path.exists(_local):
-        ENV_FILE = _local
-
+UPSTOX_ACCESS_TOKEN =  "eyJ0eXAiOiJKV1QiLCJrZXlfaWQiOiJza192MS4wIiwiYWxnIjoiSFMyNTYifQ.eyJzdWIiOiI4Q0FRNzUiLCJqdGkiOiI2OWQwYTAyZTQ5ODE3NTM2MmYxM2FmMTIiLCJpc011bHRpQ2xpZW50IjpmYWxzZSwiaXNQbHVzUGxhbiI6dHJ1ZSwiaWF0IjoxNzc1MjgwMTc0LCJpc3MiOiJ1ZGFwaS1nYXRld2F5LXNlcnZpY2UiLCJleHAiOjE3NzUzNDAwMDB9.iYNv3TZa9OUX1wEpqkkqaichI_AZAc9PBZYJqPUhiQI"
+# ── Token Refresh (Manual fallback) ──────────────────────────────────────────
 def reload_access_token():
-    """Reloads the token from the environment into the live config variable."""
-    global UPSTOX_ACCESS_TOKEN
-    new_token = os.getenv("UPSTOX_ACCESS_TOKEN")
-    if new_token:
-        UPSTOX_ACCESS_TOKEN = new_token
-        return True
-    return False
+    """
+    No longer reads from .env as we are decoupled.
+    The MQ listener keeps UPSTOX_ACCESS_TOKEN updated.
+    """
+    return True
 
 # ── API rate limits ──────────────────────────────────────────────────────────
 UPSTOX_RATE_LIMIT_CALLS  = 7

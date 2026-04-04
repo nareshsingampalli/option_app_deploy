@@ -17,6 +17,7 @@ class ExpiredCandleFetcher(BaseCandleFetcher):
 
     @rate_limited(max_calls=UPSTOX_RATE_LIMIT_CALLS, period=UPSTOX_RATE_LIMIT_PERIOD)
     def fetch_expiries(self, underlying_key: str) -> list:
+        self._sync_token()
         try:
             resp = self._api.get_expiries(underlying_key)
             if resp and hasattr(resp, "data"):
@@ -31,6 +32,7 @@ class ExpiredCandleFetcher(BaseCandleFetcher):
 
     @rate_limited(max_calls=UPSTOX_RATE_LIMIT_CALLS, period=UPSTOX_RATE_LIMIT_PERIOD)
     def fetch_contracts(self, underlying_key: str, expiry_date: str) -> list:
+        self._sync_token()
         try:
             # We default to option contracts, but future contracts are also available in the SDK
             resp = self._api.get_expired_option_contracts(underlying_key, expiry_date)
@@ -48,6 +50,7 @@ class ExpiredCandleFetcher(BaseCandleFetcher):
     def fetch_candle_data(
         self, instrument_key: str, interval_str: str, to_date: str, from_date: str
     ) -> pd.DataFrame | None:
+        self._sync_token()
         try:
             resp = self._api.get_expired_historical_candle_data(
                 instrument_key, interval_str, to_date, from_date

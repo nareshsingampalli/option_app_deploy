@@ -30,6 +30,7 @@ class HistoricalCandleFetcher(BaseCandleFetcher):
         from_date: str,
         timeout_secs: int = 90,
     ) -> pd.DataFrame | None:
+        self._sync_token() # Sync with live MQ token
         from core.utils import retry_api_call
         
         @retry_api_call(max_retries=3)

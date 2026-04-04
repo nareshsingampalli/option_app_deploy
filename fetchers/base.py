@@ -40,6 +40,14 @@ class BaseCandleFetcher(ABC):
     def get_spot_candles(self, spot_key: str, date_str: str) -> pd.DataFrame | None:
         """Fetch spot/underlying candles for a given day."""
 
+    def _sync_token(self):
+        """Ensures the API client uses the latest token from the live config."""
+        current_token = core.config.UPSTOX_ACCESS_TOKEN
+        if self._api_client.configuration.access_token != current_token:
+            print(f"[Fetcher] Syncing Upstox token to latest broadcast version.")
+            self._api_client.configuration.access_token = current_token
+            self.access_token = current_token
+
     # ── Shared behavior ───────────────────────────────────────────────────────
 
     def _normalize_unit(self, timeframe: str) -> str:
