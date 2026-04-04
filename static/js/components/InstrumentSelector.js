@@ -17,6 +17,11 @@ class InstrumentSelector extends UIComponent {
 
     onChange(fn) { this._onChange.push(fn); }
     _notify()    { this._onChange.forEach(fn => fn(this.selected())); }
+    
+    clear() {
+        if (this.container) this.container.innerHTML = '<div style="text-align:center; padding:10px; color:#999; font-size:12px;">Loading instruments...</div>';
+        this._lastInstrumentInfo = null;
+    }
 
     // ── Render ───────────────────────────────────────────────────────────────
     /**

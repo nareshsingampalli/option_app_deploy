@@ -16,6 +16,7 @@ const chartRenderer = new ChartRenderer('charts-area', metricSelector);
 let isLiveMode = false;
 let refreshInterval = null;
 let currentRenderedSymbol = null; 
+let currentRenderedDate = null; 
 
 // ── Notification Helper ─────────────────────────────────────────────────────
 function showNotice(message, duration = 5000) {
@@ -44,10 +45,15 @@ dataService.subscribe((records, isInitial) => {
     }
     // 1. Update instrument list
     const currentSymbol = symbolSelector.symbol;
+    const currentDate = (records[0] && records[0].date) ? records[0].date.split(' ')[0] : '';
     const hasInstruments = document.querySelectorAll('.instrument-cb').length > 0;
     
-    // Force re-render if it's initial, or no instruments, or the symbol has changed
-    if (isInitial || !hasInstruments || currentRenderedSymbol !== currentSymbol) {
+    // Force re-render if it's initial, or no instruments, or the symbol/date has changed
+    const needsRefresh = isInitial || !hasInstruments || 
+                         currentRenderedSymbol !== currentSymbol || 
+                         currentRenderedDate !== currentDate;
+
+    if (needsRefresh) {
         try {
             const symbols = [...new Set(records.map(r => r.symbol))].sort();
             const instrumentInfo = symbols.map(sym => {
@@ -74,6 +80,7 @@ dataService.subscribe((records, isInitial) => {
                 }
                 instrumentSelector.render(instrumentInfo, spotForRender);
                 currentRenderedSymbol = currentSymbol;
+                currentRenderedDate = currentDate;
             }
         } catch (e) {
             console.error("[App] Instrument list render error:", e);
@@ -144,6 +151,7 @@ function fetchData(silent = false) {
     if (!silent) {
         // Clear active UI state immediately to prevent showing yesterday/stale data
         chartRenderer.clear ? chartRenderer.clear() : null;
+        instrumentSelector.clear ? instrumentSelector.clear() : null;
         dataService.clear();
     }
     
