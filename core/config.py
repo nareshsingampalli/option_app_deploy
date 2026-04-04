@@ -24,6 +24,8 @@ MCX_FUT_KEYS: dict[str, str] = {
 }
 
 import os
+import threading
+import redis
 
 # ── Instrument list download URLs ────────────────────────────────────────────
 # NOTE: UPSTOX_INSTRUMENT_URL is only set in mock/test environments.
@@ -84,3 +86,33 @@ def reload_access_token():
 # ── API rate limits ──────────────────────────────────────────────────────────
 UPSTOX_RATE_LIMIT_CALLS  = 7
 UPSTOX_RATE_LIMIT_PERIOD = 0.6   # seconds
+
+# ── Redis Token Sync (MQ) ───────────────────────────────────────────────────
+def _start_token_listener():
+    """Starts a background thread to listen for token updates via Redis Pub/Sub."""
+    def listen():
+        try:
+            # Connect to local Redis (assumes Redis is running on the same VM)
+            password = os.getenv("REDIS_PASSWORD", "yourpassword123")
+            r = redis.Redis(host='127.0.0.1', port=6379, db=0, password=password, decode_responses=True)
+            p = r.pubsub()
+            p.subscribe('upstox_token_updates')
+            print("[MQ] Ready! Listening for token updates on 'upstox_token_updates' channel.")
+            
+            for message in p.listen():
+                if message['type'] == 'message':
+                    new_token = message['data']
+                    if new_token:
+                        global UPSTOX_ACCESS_TOKEN
+                        UPSTOX_ACCESS_TOKEN = new_token
+                        print(f"[MQ] Received new token. Live config updated via broadcast.")
+        except Exception as e:
+            print(f"[MQ-ERROR] Token listener encountered an error: {e}")
+
+    # Ensure only one listener thread runs
+    if not any(t.name == "UpstoxTokenListener" for t in threading.enumerate()):
+        listener_thread = threading.Thread(target=listen, name="UpstoxTokenListener", daemon=True)
+        listener_thread.start()
+
+# Initialize the listener on module load
+_start_token_listener()
