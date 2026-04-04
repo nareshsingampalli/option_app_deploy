@@ -208,6 +208,13 @@ class DataService {
         const spotEl = document.getElementById('spot-price-display');
         const expiryEl = document.getElementById('expiry-date-display');
         const updatedEl = document.getElementById('last-updated');
+        const datePicker = document.getElementById('date-picker');
+
+        // Sync Date Picker if the server shifted our date (Holiday/Weekend fallback)
+        if (datePicker && meta.date && datePicker.value !== meta.date) {
+            console.log(`[DataService] Syncing UI date picker to: ${meta.date}`);
+            datePicker.value = meta.date;
+        }
 
         if (spotEl && meta.spot_price) {
             spotEl.textContent = `Spot Price: ${meta.spot_price}`;

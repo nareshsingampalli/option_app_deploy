@@ -73,7 +73,6 @@ class ExpiredCandleFetcher(BaseCandleFetcher):
             key = f"{key}|{expiry_dt.strftime('%d-%m-%Y')}"
         
         interval_str = f"{self.interval}minute"
-        print(f"[ExpiredFetcher] Fetching expired candles: key={key}, date={date_str}, interval={interval_str}")
         return self.fetch_candle_data(key, interval_str, date_str, date_str)
 
     def get_spot_candles(self, spot_key: str, date_str: str) -> pd.DataFrame | None:
