@@ -10,11 +10,22 @@ class TimeSelector extends UIComponent {
     }
 
     setExchange(exch) {
+        const interval = parseInt(document.getElementById('interval-select').value) || 15;
+        this.reconfigure(exch, interval);
+    }
+
+    reconfigure(exch, interval) {
         this._exchange = exch;
+        this._interval = interval;
+        
         if (exch === 'NSE') {
-            this.container.max = 25; // 09:15 to 15:30 (15 min steps)
+            const start = 9 * 60 + 15;
+            const end = 15 * 60 + 30;
+            this.container.max = Math.floor((end - start) / interval);
         } else {
-            this.container.max = 29; // 09:00 to 23:30 (30 min steps)
+            const start = 9 * 60;
+            const end = 23 * 60 + 30;
+            this.container.max = Math.floor((end - start) / interval);
         }
         this.container.value = this.container.max;
         this.updateDisplay();
@@ -22,13 +33,14 @@ class TimeSelector extends UIComponent {
 
     get time() {
         const val = parseInt(this.container.value);
+        const interval = this._interval || 15;
         if (this._exchange === 'NSE') {
             const startMinutes = 9 * 60 + 15;
-            const totalMinutes = startMinutes + (val * 15);
+            const totalMinutes = startMinutes + (val * interval);
             return this._minutesToHHMM(totalMinutes);
         } else {
             const startMinutes = 9 * 60;
-            const totalMinutes = startMinutes + (val * 30);
+            const totalMinutes = startMinutes + (val * interval);
             return this._minutesToHHMM(totalMinutes);
         }
     }
@@ -46,11 +58,14 @@ class TimeSelector extends UIComponent {
             if (labelsGrid && labelsGrid.children.length >= 3) {
                 if (this._exchange === 'NSE') {
                     labelsGrid.children[0].textContent = '09:15';
-                    labelsGrid.children[1].textContent = '12:15';
+                    // Dynamic middle label
+                    const totalT = (15 * 60 + 30) - (9 * 60 + 15);
+                    labelsGrid.children[1].textContent = this._minutesToHHMM(9*60+15 + totalT/2);
                     labelsGrid.children[2].textContent = '15:30';
                 } else {
                     labelsGrid.children[0].textContent = '09:00';
-                    labelsGrid.children[1].textContent = '16:00';
+                    const totalT = (23 * 60 + 30) - (9 * 60);
+                    labelsGrid.children[1].textContent = this._minutesToHHMM(9*60 + totalT/2);
                     labelsGrid.children[2].textContent = '23:30';
                 }
             }

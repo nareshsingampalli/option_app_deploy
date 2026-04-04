@@ -32,6 +32,7 @@ class CandleFetcherFactory:
         target_date: str,
         live_mode: bool = False,
         last_expired_dt: datetime | None = None,
+        interval: int = 15
     ) -> BaseCandleFetcher:
         """
         Parameters
@@ -45,14 +46,14 @@ class CandleFetcherFactory:
         An instantiated BaseCandleFetcher subclass.
         """
         if live_mode:
-            print("[FetcherFactory] LIVE -> IntradayCandleFetcher")
-            return IntradayCandleFetcher()
+            print(f"[FetcherFactory] LIVE -> IntradayCandleFetcher (int={interval})")
+            return IntradayCandleFetcher(interval=interval)
 
         if last_expired_dt is not None:
             target_dt = datetime.strptime(target_date, "%Y-%m-%d")
             if target_dt <= last_expired_dt:
-                print(f"[FetcherFactory] EXPIRED -> ExpiredCandleFetcher ({target_date})")
-                return ExpiredCandleFetcher()
+                print(f"[FetcherFactory] EXPIRED -> ExpiredCandleFetcher ({target_date}, int={interval})")
+                return ExpiredCandleFetcher(interval=interval)
 
-        print(f"[FetcherFactory] HIST -> HistoricalCandleFetcher ({target_date})")
-        return HistoricalCandleFetcher()
+        print(f"[FetcherFactory] HIST -> HistoricalCandleFetcher ({target_date}, int={interval})")
+        return HistoricalCandleFetcher(interval=interval)

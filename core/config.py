@@ -53,7 +53,7 @@ CANDLE_INTERVAL_MINUTES = 15    # Single source of truth for fetchers, scheduler
 SCHEDULER_HOURS: dict[str, dict] = {
     "NSE": {"start": "09:15:20", "end": "15:40:00", "prefix": "option"},
     "BSE": {"start": "09:15:20", "end": "15:40:00", "prefix": "option"},
-    "MCX": {"start": "09:15:20", "end": "23:59:00", "prefix": "mcx"},
+    "MCX": {"start": "09:00:20", "end": "23:59:00", "prefix": "mcx"},
 }
 
 # ── Strike selection ─────────────────────────────────────────────────────────
@@ -64,7 +64,7 @@ MCX_STRIKE_STEP     = 50     # ATM rounding step for MCX
 # Single source of truth for the Upstox API credentials.
 # The dashboard uses /api/refresh-token to reload these from the .env file at runtime.
 UPSTOX_API_URL      = os.getenv("UPSTOX_API_URL", "https://api.upstox.com")
-UPSTOX_ACCESS_TOKEN =  "eyJ0eXAiOiJKV1QiLCJrZXlfaWQiOiJza192MS4wIiwiYWxnIjoiSFMyNTYifQ.eyJzdWIiOiI4Q0FRNzUiLCJqdGkiOiI2OWM2OWUwYmUxZjEwMjNhMTRlZDhmYjgiLCJpc011bHRpQ2xpZW50IjpmYWxzZSwiaXNQbHVzUGxhbiI6dHJ1ZSwiaWF0IjoxNzc0NjI0MjY3LCJpc3MiOiJ1ZGFwaS1nYXRld2F5LXNlcnZpY2UiLCJleHAiOjE3NzQ2NDg4MDB9.6smtqVAgCXBO4mkZg07gl5lILOUYQrnvl7RROWX3WFo"
+UPSTOX_ACCESS_TOKEN =  "eyJ0eXAiOiJKV1QiLCJrZXlfaWQiOiJza192MS4wIiwiYWxnIjoiSFMyNTYifQ.eyJzdWIiOiI4Q0FRNzUiLCJqdGkiOiI2OWQwNTcwYjQ5ODE3NTM2MmYxM2FiNjYiLCJpc011bHRpQ2xpZW50IjpmYWxzZSwiaXNQbHVzUGxhbiI6dHJ1ZSwiaWF0IjoxNzc1MjYxNDUxLCJpc3MiOiJ1ZGFwaS1nYXRld2F5LXNlcnZpY2UiLCJleHAiOjE3NzUzNDAwMDB9.rJEhbPxXjFa1it75VfK_zdf44sBLNSocP3d90WU9xn4"
 # Location of the .env file (used by refresh-token endpoint)
 ENV_FILE = os.getenv("ENV_FILE") or "/home/ubuntu/refactor_app/.env"
 if not os.path.exists(ENV_FILE):

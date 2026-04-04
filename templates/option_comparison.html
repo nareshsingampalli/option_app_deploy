@@ -62,9 +62,25 @@
 
 
 
-                <div id="spot-price-display"
-                    style="margin-top:10px; font-weight:bold; color:var(--primary-color); font-size:16px;"></div>
-                <div id="expiry-date-display" style="font-size:14px; color:#555; margin-top:5px;"></div>
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-top: 10px;">
+                    <div>
+                        <div id="spot-price-display" style="font-weight:bold; color:var(--primary-color); font-size:16px;"></div>
+                        <div id="expiry-date-display" style="font-size:14px; color:#555; margin-top:5px;"></div>
+                    </div>
+                    <div>
+                        <label for="interval-select" style="font-size: 11px; color: #666; display: block; margin-bottom: 2px;">Interval (min)</label>
+                        <select id="interval-select" style="padding: 4px; font-size: 12px; border: 1px solid #ddd; border-radius: 4px;">
+                            <option value="1">1</option>
+                            <option value="3">3</option>
+                            <option value="5">5</option>
+                            <option value="10">10</option>
+                            <option value="15" selected>15</option>
+                            <option value="30">30</option>
+                            <option value="45">45</option>
+                            <option value="60">60</option>
+                        </select>
+                    </div>
+                </div>
                 <div id="last-updated" style="font-size:10px; color:#999; margin-top:2px;"></div>
             </div>
 

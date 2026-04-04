@@ -109,11 +109,13 @@ instrumentSelector.onChange(selected => {
 
 window.buildParams = function () {
     const datePicker = document.getElementById('date-picker');
+    const intervalSelect = document.getElementById('interval-select');
     return {
         exchange: symbolSelector.exchange,
         symbol: symbolSelector.symbol,
         date: datePicker.value,
         time: timeSelector.time,
+        interval: intervalSelect.value,
         ...(isLiveMode ? { live: 'true' } : {})
     };
 }
@@ -193,7 +195,12 @@ document.getElementById('time-slider').addEventListener('input', () => {
     timeSelector.updateDisplay();
 });
 
-document.getElementById('time-slider').addEventListener('change', () => {
+document.getElementById('time-slider').addEventListener('change', fetchData);
+
+document.getElementById('interval-select').addEventListener('change', () => {
+    const exchange = symbolSelector.exchange || 'NSE';
+    const interval = parseInt(document.getElementById('interval-select').value);
+    timeSelector.reconfigure(exchange, interval);
     fetchData();
 });
 
@@ -210,7 +217,7 @@ function isMarketOpen(exchange = 'NSE') {
 
     // Hours Check
     if (exchange === 'NSE') {
-        return (timeVal >= 915 && timeVal <= 1530);
+        return (timeVal >= 1000 && timeVal <= 1530);
     } else if (exchange === 'MCX') {
         return (timeVal >= 900 && timeVal <= 2330);
     }
@@ -222,7 +229,7 @@ liveToggle.addEventListener('change', () => {
     const exchange = symbolSelector.exchange || 'NSE';
 
     if (isLiveMode && !isMarketOpen(exchange)) {
-        const range = exchange === 'NSE' ? '09:15 AM - 03:30 PM' : '09:00 AM - 11:30 PM';
+        const range = exchange === 'NSE' ? '10:00 AM - 03:30 PM' : '09:00 AM - 11:30 PM';
         showNotice(`Market is closed for ${exchange}. Live mode is only available Mon-Fri, ${range} IST.`);
         liveToggle.checked = false;
         isLiveMode = false;

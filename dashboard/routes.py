@@ -98,6 +98,7 @@ def get_option_data():
     live_mode   = request.args.get("live", "false").lower() == "true"
     exchange    = request.args.get("exchange", "NSE").upper()
     symbol      = request.args.get("symbol", "NIFTY").upper()
+    interval    = int(request.args.get("interval", "15"))
 
     print(f"[API] exch={exchange}, symbol={symbol}, date={date_str}, time={time_str}, live={live_mode}")
 
@@ -128,6 +129,8 @@ def get_option_data():
         return jsonify({"error": "Invalid date format. Use YYYY-MM-DD"}), 400
 
     suffix       = f"_{time_str.replace(':', '')}" if time_str else ""
+    # Add interval to suffix to avoid overwriting files with different granularity
+    suffix       += f"_int{interval}"
     sym          = symbol.lower()
     
     # Map prefix to directory name
@@ -139,49 +142,57 @@ def get_option_data():
     file_exists  = os.path.exists(csv_path)
     file_age_s   = time.time() - os.path.getmtime(csv_path) if file_exists else 999999
     
-    # Needs fetch if:
+    # ── Robust Needs-Fetch Logic ──────────────────────────────────────────────
+    # We fetch if:
     # 1. File doesn't exist
-    # 2. It's live mode or today and data is > 300s old (waiting for scheduler)
-    needs_fetch  = not file_exists 
+    # 2. File exists but is empty (has_data: false) and not recently checked
+    # 3. Market is open and data is > 5 min old
+    # 4. Market is closed but we haven't done the "Final EOD Fetch" (after 15:40)
+    
+    needs_fetch = not file_exists
+    cached_meta = {}
+    if os.path.exists(meta_path):
+        try:
+            with open(meta_path) as f:
+                cached_meta = json.load(f)
+        except: pass
+
+    has_valid_data = cached_meta.get("has_data", False)
+    is_fallback    = cached_meta.get("is_fallback", False)
+    file_mtime     = os.path.getmtime(csv_path) if file_exists else 0
+    meta_mtime     = os.path.getmtime(meta_path) if os.path.exists(meta_path) else 0
+    last_check_age = time.time() - max(file_mtime, meta_mtime)
+
     if file_exists:
         if live_mode or is_today:
-            # Smart After-Hours Check:
-            # We want to fetch exactly once after market hours to get the final EOD data.
-            # Then we serve from disk forever for the rest of the night.
             now_dt = ist_now()
-            # Market ends: NSE/BSE @ 15:30, MCX @ 23:30. 
-            # We use a 10-min buffer (15:40 / 23:40) to ensure the server has processed the close.
+            # Market Ends: 15:40 NSE/BSE, 23:40 MCX
             m_end_h, m_end_m = (15, 40) if exchange != "MCX" else (23, 40)
             m_end_dt = now_dt.replace(hour=m_end_h, minute=m_end_m, second=0, microsecond=0)
-            
             is_closed = now_dt > m_end_dt
             
             if is_closed:
-                # One-time Final Fetch:
-                # If market is closed, check if the file on disk was updated AFTER the close.
-                # If not, we need one final fetch to get the complete daily data.
-                file_mtime_ts = os.path.getmtime(csv_path)
-                m_end_ts      = m_end_dt.timestamp()
-                
-                if file_mtime_ts < m_end_ts:
+                # If market is closed, check if we have data from AFTER the close
+                # If yes, it's final EOD data — servable forever.
+                if max(file_mtime, meta_mtime) < m_end_dt.timestamp():
+                    # We only have mid-day data. Need one final fetch.
                     needs_fetch = True
                 else:
+                    # We have EOD data.
                     needs_fetch = False
             else:
-                # During market hours - 5-min TTL
-                needs_fetch = file_age_s > 300
+                # During market hours — 5 min TTL
+                needs_fetch = last_check_age > 300
         else:
-            # Historical (Yesterday/etc) - check if it was a fallback fetch
-            if os.path.exists(meta_path):
-                try:
-                    with open(meta_path) as f:
-                        m = json.load(f)
-                    if m.get("is_fallback"):
-                        needs_fetch = True
-                        print(f"[API] {date_str} has fallback data. Attempting upgrade fetch.")
-                except:
-                    pass
-            if not needs_fetch:
+            # Historical (Past Date)
+            if is_fallback:
+                # If it's a fallback, retry once an hour to see if real data appeared
+                needs_fetch = last_check_age > 3600
+            elif not has_valid_data:
+                # If it failed to get data (holiday/error), retry every 30 min
+                needs_fetch = last_check_age > 1800
+            else:
+                # Correct historical data never changes
                 needs_fetch = False
 
     # Skip fetch if auth error cached in meta
@@ -195,11 +206,11 @@ def get_option_data():
             pass
 
     if needs_fetch:
-        print(f"[API] Data stale/missing for {symbol}. Starting background refresh...")
         from dashboard.scheduler import get_lock
         lock = get_lock(symbol)
         
         if lock.acquire(blocking=False):
+            print(f"[API] Data stale/missing for {symbol}. Starting background refresh...")
             # Proactively notify the frontend via WebSocket that we are starting a fetch
             socketio.emit("data_fetching", {"symbol": symbol, "message": f"Processing {date_str} data for {symbol}...\u2026"}, room=symbol)
             
@@ -222,7 +233,7 @@ def get_option_data():
                             from strategies.handlers import build_pipeline
                             
                             storage  = build_storage_chain()
-                            pipeline = build_pipeline(exchange, curr_date, live_mode, symbol, storage)
+                            pipeline = build_pipeline(exchange, curr_date, live_mode, symbol, storage, interval=interval)
                             
                             if pipeline:
                                 pipeline.run(symbol, curr_date, time_str)
@@ -432,8 +443,8 @@ def _notify_rejoining_client(sid: str, symbol: str, exchange: str):
     prefix   = "mcx" if exchange == "MCX" else "option"
     dir_name = "mcx_data" if exchange == "MCX" else "nse_data"
     sym_lc   = symbol.lower()
-    csv_path  = os.path.join(os.getcwd(), dir_name, f"{prefix}_{sym_lc}_tabular_{trading_day}.csv")
-    meta_path = os.path.join(os.getcwd(), dir_name, f"{prefix}_{sym_lc}_meta_{trading_day}.json")
+    csv_path  = os.path.join(os.getcwd(), dir_name, f"{prefix}_{sym_lc}_tabular_{trading_day}_int15.csv")
+    meta_path = os.path.join(os.getcwd(), dir_name, f"{prefix}_{sym_lc}_meta_{trading_day}_int15.json")
 
     file_exists = os.path.exists(csv_path)
     file_age_s  = (time.time() - os.path.getmtime(csv_path)) if file_exists else None

@@ -29,6 +29,7 @@ class SaveContext:
     is_expired:  bool
     prefix:      str          # 'option' | 'mcx'
     symbol:      str          # 'NIFTY', 'BANKNIFTY', etc.
+    interval:    int          = 15
     is_fallback: bool         = False
 
 

@@ -46,6 +46,7 @@ class StrategyContext:
     symbol:          str                = "NIFTY"
     last_expired_dt: Optional[datetime] = field(default=None)
     today_str:       str                = field(default_factory=lambda: datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%Y-%m-%d"))
+    interval:        int                = 15
 
 
 # ── Abstract Handler ──────────────────────────────────────────────────────────
@@ -72,7 +73,7 @@ class LiveHandler(StrategyHandler):
     def handle(self, ctx, storage):
         if not ctx.live_mode:
             return self._forward(ctx, storage)
-        fetcher = CandleFetcherFactory.create(ctx.target_date, live_mode=True)
+        fetcher = CandleFetcherFactory.create(ctx.target_date, live_mode=True, interval=ctx.interval)
         print(f"[StrategyChain] LIVE -> {ctx.exchange}")
         if ctx.exchange == "MCX":
             from strategies.mcx import MCXLivePipeline
@@ -105,7 +106,7 @@ class ExpiredHandler(StrategyHandler):
         if target_dt <= ctx.last_expired_dt:
             print(f"[StrategyChain] EXPIRED ({ctx.target_date} <= {ctx.last_expired_dt.date()})")
             fetcher = CandleFetcherFactory.create(
-                ctx.target_date, last_expired_dt=ctx.last_expired_dt
+                ctx.target_date, last_expired_dt=ctx.last_expired_dt, interval=ctx.interval
             )
             from strategies.nse import NSEExpiredPipeline
             return NSEExpiredPipeline(fetcher, NSEExpiredResolver(), storage, symbol=ctx.symbol)
@@ -118,7 +119,7 @@ class HistoricalHandler(StrategyHandler):
         today_dt  = datetime.strptime(ctx.today_str,   "%Y-%m-%d")
         if target_dt > today_dt:
             return self._forward(ctx, storage)
-        fetcher = CandleFetcherFactory.create(ctx.target_date)
+        fetcher = CandleFetcherFactory.create(ctx.target_date, interval=ctx.interval)
         print(f"[StrategyChain] HISTORICAL -> {ctx.exchange}")
         if ctx.exchange == "MCX":
             from strategies.mcx import MCXHistoricalPipeline
@@ -182,6 +183,7 @@ def build_pipeline(
     live_mode:   bool,
     symbol:      str,
     storage:     StorageHandler,
+    interval:    int = 15
 ) -> Optional[MarketDataPipeline]:
     """
     Convenience function — resolves last_expired_dt and returns the correct pipeline.
@@ -210,6 +212,7 @@ def build_pipeline(
         live_mode=live_mode,
         symbol=symbol,
         last_expired_dt=last_expired,
+        interval=interval,
     )
     chain = StrategyChain.build(storage)
     return chain.resolve(ctx, storage)

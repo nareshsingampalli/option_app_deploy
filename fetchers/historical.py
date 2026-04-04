@@ -3,6 +3,7 @@
 import signal
 import time
 from datetime import datetime, timedelta
+import pytz
 
 import pandas as pd
 from upstox_client.rest import ApiException
@@ -86,17 +87,33 @@ class HistoricalCandleFetcher(BaseCandleFetcher):
         return combined[~combined.index.duplicated(keep="first")].sort_index()
 
     # ── Unified interface ────────────────────────────────────────────────────
+    def _get_prev_trading_day(self, date_str: str) -> str:
+        """Helper to find the date of the preceding trading session."""
+        dt = datetime.strptime(date_str, "%Y-%m-%d")
+        prev = dt - timedelta(days=1)
+        # 5=Saturday, 6=Sunday. Skip backwards.
+        while prev.weekday() >= 5:
+            prev -= timedelta(days=1)
+        return prev.strftime("%Y-%m-%d")
+
     def get_candles(self, instrument_key: str, date_str: str, expiry_dt=None) -> pd.DataFrame | None:
         self.used_fallback = False
-        df = self.fetch_single(instrument_key, "minutes", self.interval, date_str, date_str)
+        # Fetch from the previous trading day to provide a non-resetting baseline for ROC calculations.
+        from_date = self._get_prev_trading_day(date_str)
+        df = self.fetch_single(instrument_key, "minutes", self.interval, date_str, from_date)
         if df is None or df.empty:
-            df = self.fetch_single(instrument_key, "minutes", 1, date_str, date_str)
+            df = self.fetch_single(instrument_key, "minutes", 1, date_str, from_date)
             if df is not None and not df.empty:
                 self.used_fallback = True
         return df
 
     def get_spot_candles(self, spot_key: str, date_str: str) -> pd.DataFrame | None:
-        return self.get_candles(spot_key, date_str)
+        # Same as get_candles: provide continuity across days.
+        from_date = self._get_prev_trading_day(date_str)
+        df = self.fetch_single(spot_key, "minutes", self.interval, date_str, from_date)
+        if df is None or df.empty:
+            df = self.fetch_single(spot_key, "minutes", 1, date_str, from_date)
+        return df
 
     def get_spot_price_at(self, spot_key: str, date_str: str, time_str: str | None) -> float | None:
         """Return close price at target time, or daily close as fallback."""

@@ -23,11 +23,11 @@ def _filename_pair(ctx: SaveContext) -> tuple[str, str]:
     sym = ctx.symbol.lower()
     if ctx.time_str:
         clean = ctx.time_str.replace(":", "")
-        csv_file  = f"{ctx.prefix}_{sym}_tabular_{ctx.date_str}_{clean}.csv"
-        meta_file = f"{ctx.prefix}_{sym}_meta_{ctx.date_str}_{clean}.json"
+        csv_file  = f"{ctx.prefix}_{sym}_tabular_{ctx.date_str}_{clean}_int{ctx.interval}.csv"
+        meta_file = f"{ctx.prefix}_{sym}_meta_{ctx.date_str}_{clean}_int{ctx.interval}.json"
     else:
-        csv_file  = f"{ctx.prefix}_{sym}_tabular_{ctx.date_str}.csv"
-        meta_file = f"{ctx.prefix}_{sym}_meta_{ctx.date_str}.json"
+        csv_file  = f"{ctx.prefix}_{sym}_tabular_{ctx.date_str}_int{ctx.interval}.csv"
+        meta_file = f"{ctx.prefix}_{sym}_meta_{ctx.date_str}_int{ctx.interval}.json"
         
     return os.path.join(dir_name, csv_file), os.path.join(dir_name, meta_file)
 

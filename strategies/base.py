@@ -194,14 +194,9 @@ class MarketDataPipeline(ABC):
             (result["date"].dt.time <= self.market_end)
         ].copy()
 
-        # User request: "wait for 2 candle values from the start of market hours"
-        # and "don't start from zero". 
-        # By skipping the first 2 candles of the session, the first displayed record 
-        # will have a valid, non-zero 'change' relative to its predecessor.
-        if len(session_data) > 2:
-            result = session_data.iloc[2:].copy()
-        else:
-            result = session_data.copy()
+        # User request: "don't skip"
+        # Return the full session data including the first available candles.
+        result = session_data.copy()
 
         # Shift timestamp to candle CLOSE time so chart shows
         # "close price at close time" rather than at the open time.
@@ -220,6 +215,7 @@ class MarketDataPipeline(ABC):
             is_expired=is_expired,
             prefix=self.prefix,
             symbol=symbol,
+            interval=self.fetcher.interval,
             is_fallback=is_fallback,
         )
         self.storage.handle(ctx)
