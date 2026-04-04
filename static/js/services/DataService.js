@@ -29,8 +29,22 @@ class DataService {
     }
 
     clear() {
+        this.clearData();
+        this.clearMeta();
+    }
+
+    clearData() {
         this._rawData = [];
         this._currentParams = null;
+    }
+
+    clearMeta() {
+        const spotEl = document.getElementById('spot-price-display');
+        const expiryEl = document.getElementById('expiry-date-display');
+        const updatedEl = document.getElementById('last-updated');
+        if (spotEl) spotEl.textContent = '';
+        if (expiryEl) expiryEl.textContent = '';
+        if (updatedEl) updatedEl.textContent = '';
     }
 
     async load(params, silent = false) {
@@ -195,8 +209,12 @@ class DataService {
         const expiryEl = document.getElementById('expiry-date-display');
         const updatedEl = document.getElementById('last-updated');
 
-        if (spotEl) spotEl.textContent = meta.spot_price ? `Spot Price: ${meta.spot_price}` : '';
-        if (expiryEl) expiryEl.textContent = meta.expiry_date ? `Expiry: ${meta.expiry_date}` : '';
+        if (spotEl && meta.spot_price) {
+            spotEl.textContent = `Spot Price: ${meta.spot_price}`;
+        }
+        if (expiryEl && meta.expiry_date) {
+            expiryEl.textContent = `Expiry: ${meta.expiry_date}`;
+        }
         if (updatedEl && meta.fetched_at) {
             updatedEl.textContent = `Last Updated: ${new Date(meta.fetched_at).toLocaleTimeString()}`;
         }

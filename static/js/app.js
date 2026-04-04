@@ -152,7 +152,7 @@ function fetchData(silent = false) {
         // Clear active UI state immediately to prevent showing yesterday/stale data
         chartRenderer.clear ? chartRenderer.clear() : null;
         instrumentSelector.clear ? instrumentSelector.clear() : null;
-        dataService.clear();
+        dataService.clearData();
     }
     
     dataService.load(window.buildParams(), silent);
