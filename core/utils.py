@@ -5,11 +5,9 @@ import requests
 import gzip
 import io
 import pandas as pd
-import time
 from core.config import CACHE_DIR
 from upstox_client.rest import ApiException
 import functools
-
 import threading
 
 _api_rl_lock = threading.Lock()
@@ -145,7 +143,7 @@ TRADING_HOLIDAYS_2026 = {
 
 def get_last_trading_day(dt=None):
     """
-    Returns the most recent trading day, skipping weekends and known holidays.
+    Returns the most recent trading day (at or before dt), skipping weekends and known holidays.
     """
     from datetime import timedelta
     if dt is None:
@@ -162,3 +160,22 @@ def get_last_trading_day(dt=None):
         else:
             break
     return curr
+
+def get_next_trading_day(dt=None):
+    """
+    Returns the next upcoming trading day (strictly after dt), skipping weekends and known holidays.
+    """
+    from datetime import timedelta
+    if dt is None:
+        dt = ist_now()
+    
+    curr = dt + timedelta(days=1)
+    while True:
+        wd = curr.weekday()
+        ds = curr.strftime("%Y-%m-%d")
+        
+        if wd >= 5 or ds in TRADING_HOLIDAYS_2026:
+            curr += timedelta(days=1)
+        else:
+            break
+    return curr.replace(hour=9, minute=0, second=0, microsecond=0)

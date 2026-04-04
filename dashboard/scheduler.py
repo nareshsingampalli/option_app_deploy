@@ -150,13 +150,12 @@ def _main_scheduler_loop():
         
         if not any_in_hours:
             # Market is closed for all watched symbols. 
-            # Kill the loop until the next morning (9:00 AM) or until a user connects.
-            next_open = now.replace(hour=9, minute=0, second=0, microsecond=0)
-            if now > next_open:
-                next_open += timedelta(days=1)
+            # Kill the loop until the next market open or until a user connects.
+            from core.utils import get_next_trading_day
+            next_open = get_next_trading_day(now)
             sleep_sec = (next_open - now).total_seconds()
             
-            print(f"[Scheduler] Market is closed. Hibernating completely for {sleep_sec/3600:.1f} hours till next open...")
+            print(f"[Scheduler] Market is closed. Hibernating completely for {sleep_sec/3600:.1f} hours till next open ({next_open.strftime('%Y-%m-%d %H:%M')})...")
             _wake_event.wait(timeout=sleep_sec)
             _wake_event.clear()
         else:

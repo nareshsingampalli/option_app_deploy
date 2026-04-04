@@ -70,10 +70,18 @@ UPSTOX_ACCESS_TOKEN =  "eyJ0eXAiOiJKV1QiLCJrZXlfaWQiOiJza192MS4wIiwiYWxnIjoiSFMy
 # ── Token Refresh (Manual fallback) ──────────────────────────────────────────
 def reload_access_token():
     """
-    No longer reads from .env as we are decoupled.
-    The MQ listener keeps UPSTOX_ACCESS_TOKEN updated.
+    Manually re-sync the token from the environment as a fallback 
+    if the Redis MQ listener is unreachable (common in VM setups).
     """
-    return True
+    from dotenv import load_dotenv
+    load_dotenv(override=True)
+    new_token = os.getenv("UPSTOX_ACCESS_TOKEN")
+    if new_token:
+        global UPSTOX_ACCESS_TOKEN
+        UPSTOX_ACCESS_TOKEN = new_token
+        print(f"[API] Token manually reloaded from environment.")
+        return True
+    return False
 
 # ── API rate limits ──────────────────────────────────────────────────────────
 UPSTOX_RATE_LIMIT_CALLS  = 7
@@ -85,7 +93,7 @@ def _start_token_listener():
     def listen():
         try:
             # Connect to local Redis (assumes Redis is running on the same VM)
-            password = os.getenv("REDIS_PASSWORD", "yourpassword123")
+            password = "yourpassword123"
             r = redis.Redis(host='127.0.0.1', port=6379, db=0, password=password, decode_responses=True)
             p = r.pubsub()
             p.subscribe('upstox_token_updates')
@@ -99,7 +107,9 @@ def _start_token_listener():
                         UPSTOX_ACCESS_TOKEN = new_token
                         print(f"[MQ] Received new token. Live config updated via broadcast.")
         except Exception as e:
-            print(f"[MQ-ERROR] Token listener encountered an error: {e}")
+            print(f"[MQ-ERROR] Token listener failed to connect to Redis at 127.0.0.1:6379. "
+                  f"Token sync will be disabled. Error: {e}")
+            print(f"[MQ-INFO] Using fallback/hardcoded token. You can manually refresh via /api/refresh-token if you update your .env file.")
 
     # Ensure only one listener thread runs
     if not any(t.name == "UpstoxTokenListener" for t in threading.enumerate()):

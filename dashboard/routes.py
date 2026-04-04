@@ -435,11 +435,10 @@ def _notify_rejoining_client(sid: str, symbol: str, exchange: str, interval: int
     def secs(t):
         return t.hour * 3600 + t.minute * 60 + t.second
 
-    market_open = secs(start_t) <= secs(now_t) <= secs(end_t)
-
-    # ── Check for the data file on disk ──────────────────────────────────────
     trading_day = get_last_trading_day(now).strftime("%Y-%m-%d")
     is_trading_day = (trading_day == today_str)  # False on weekends
+
+    market_open = is_trading_day and (secs(start_t) <= secs(now_t) <= secs(end_t))
 
     prefix   = "mcx" if exchange == "MCX" else "option"
     dir_name = "mcx_data" if exchange == "MCX" else "nse_data"
@@ -479,9 +478,9 @@ def _notify_rejoining_client(sid: str, symbol: str, exchange: str, interval: int
         # A scheduler/API fetch is already running → tell the client to wait
         socketio.emit("data_fetching",
                       {"symbol": symbol, "exchange": exchange,
-                       "message": f"Fetching latest data for {symbol}…"},
+                       "message": f"Fetching data for {symbol} ({trading_day})…"},
                       room=sid)
-        print(f"[WS] Told {sid} that fetch is in progress for {symbol}.")
+        print(f"[WS] Told {sid} that fetch is in progress for {symbol} ({trading_day}).")
         return
 
     if file_exists:
