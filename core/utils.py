@@ -131,11 +131,15 @@ def ist_now():
 # ── Holiday Handling (NSE/MCX 2026) ──────────────────────────────────────────
 TRADING_HOLIDAYS_2026 = {
     "2026-01-26", # Republic Day
-    "2026-03-30", # Holi
+    "2026-02-17", # Maha Shivaratri
+    "2026-03-03", # Holi
     "2026-04-03", # Good Friday
     "2026-04-14", # Ambedkar Jayanti
     "2026-05-01", # Maharashtra Day
     "2026-10-02", # Gandhi Jayanti
+    "2026-10-21", # Dussehra
+    "2026-11-03", # Diwali
+    "2026-11-20", # Guru Nanak Jayanti
     "2026-12-25", # Christmas
 }
 
@@ -158,4 +162,3 @@ def get_last_trading_day(dt=None):
         else:
             break
     return curr
-
