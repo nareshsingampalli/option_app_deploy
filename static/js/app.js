@@ -45,10 +45,13 @@ dataService.subscribe((records, isInitial) => {
     }
     
     // ── Sync Instrument List — Automatic Side-Bar Update ───────────────────
-    const firstRow = records[0];
-    const spotPrice = parseFloat(firstRow.spot_price) || null;
+    const targetTime = timeSelector.time;
+    // Find the specific record for our slider time to get the correct spot price
+    const matchingRow = records.find(r => r.date.includes(targetTime)) || records[records.length - 1];
+    const spotPrice = parseFloat(matchingRow.spot_price) || null;
+    
     const currentSymbol = symbolSelector.symbol;
-    const currentDate = (firstRow && firstRow.date) ? firstRow.date.split(' ')[0] : '';
+    const currentDate = (matchingRow && matchingRow.date) ? matchingRow.date.split(' ')[0] : '';
     
     // Extract candidate instrument info from the data
     const symbols = [...new Set(records.map(r => r.symbol))].sort();
@@ -85,6 +88,14 @@ dataService.subscribe((records, isInitial) => {
             if (currentInstrumentInfo.length > 0) {
                 console.log(`[App] Instrument list shifted or new load. Syncing sidebar...`);
                 instrumentSelector.render(currentInstrumentInfo, spotPrice);
+                
+                // Update Sidebar Labels: Spot Price & Date
+                const spotEl = document.getElementById('spot-price-display');
+                if (spotEl) {
+                    spotEl.innerHTML = `<strong>Spot Price:</strong> ${spotPrice.toFixed(2)}`;
+                    spotEl.style.color = '#1e88e5'; // Highlight when syncing
+                }
+                
                 currentRenderedSymbol = currentSymbol;
                 currentRenderedDate = currentDate;
                 
