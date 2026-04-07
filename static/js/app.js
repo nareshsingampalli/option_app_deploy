@@ -304,11 +304,15 @@ window.handleSelectorClick = (type) => {
         allButtons.forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
     } else {
-        // Deactivate 'all' and 'none' if any other toggle is clicked
+        // Deactivate 'all' and 'none' master switches if any specific filter is toggled
         document.getElementById('btn-all').classList.remove('active');
         document.getElementById('btn-none').classList.remove('active');
         
-        // Mutual exclusivity between intraday and scalping
+        // Exclusivity: CE vs PE
+        if (type === 'ce') document.getElementById('btn-pe').classList.remove('active');
+        if (type === 'pe') document.getElementById('btn-ce').classList.remove('active');
+
+        // Exclusivity: Intraday vs Scalping
         if (type === 'intraday') document.getElementById('btn-scalping').classList.remove('active');
         if (type === 'scalping') document.getElementById('btn-intraday').classList.remove('active');
 
