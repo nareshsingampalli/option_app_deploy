@@ -18,15 +18,27 @@ class TimeSelector extends UIComponent {
         this._exchange = exch;
         this._interval = interval;
         
+        const now = new Date();
+        const ist = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+        const currentMins = ist.getHours() * 60 + ist.getMinutes();
+        
+        const datePicker = document.getElementById('date-picker');
+        const isToday = datePicker ? datePicker.value === ist.toLocaleDateString('en-CA') : false;
+
+        let marketStart, marketEnd;
         if (exch === 'NSE') {
-            const start = 9 * 60 + 15 + interval; // Start at first candle close
-            const end = 15 * 60 + 30;
-            this.container.max = Math.max(0, Math.floor((end - start) / interval));
+            marketStart = 9 * 60 + 15;
+            marketEnd = 15 * 60 + 30;
         } else {
-            const start = 9 * 60 + interval;
-            const end = 23 * 60 + 30;
-            this.container.max = Math.max(0, Math.floor((end - start) / interval));
+            marketStart = 9 * 60;
+            marketEnd = 23 * 60 + 30;
         }
+
+        const start = marketStart + interval;
+        // Cap the end of the slider at the current time if looking at today's data
+        const end = isToday ? Math.min(marketEnd, currentMins) : marketEnd;
+        
+        this.container.max = Math.max(0, Math.floor((end - start) / interval));
         this.container.value = this.container.max;
         this.updateDisplay();
     }
