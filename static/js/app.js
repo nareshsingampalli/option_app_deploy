@@ -232,11 +232,23 @@ datePicker.addEventListener('change', () => {
     fetchData();
 });
 
+// ── Time Slider Debounce Logic ──────────────────────────────────────────────
+let sliderDebounceTimer = null;
 document.getElementById('time-slider').addEventListener('input', () => {
     timeSelector.updateDisplay();
+    
+    // Clear existing timer
+    if (sliderDebounceTimer) clearTimeout(sliderDebounceTimer);
+    
+    // Wait for 1 second of stillness before fetching
+    sliderDebounceTimer = setTimeout(() => {
+        console.log(`[App] Slider stopped at ${timeSelector.time}. Fetching time-slice...`);
+        fetchData();
+    }, 1000);
 });
 
-document.getElementById('time-slider').addEventListener('change', fetchData);
+// Remove the old 'change' listener since we now use debounced 'input'
+// document.getElementById('time-slider').addEventListener('change', fetchData);
 
 document.getElementById('interval-select').addEventListener('change', () => {
     const exchange = symbolSelector.exchange || 'NSE';
