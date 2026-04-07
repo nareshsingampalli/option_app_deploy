@@ -153,7 +153,6 @@ def get_option_data():
     is_today    = date_str == ist_now().strftime("%Y-%m-%d")
     prefix      = "mcx" if exchange == "MCX" else "option"
 
-    # Auto-upgrade to live mode only when the market is OPEN
     if is_today and not live_mode:
         stat = market_status().get_json()
         if stat["is_open"]:
@@ -165,11 +164,9 @@ def get_option_data():
     # Store requested time for metadata extraction later
     requested_time = time_str if not live_mode else ""
 
-    if live_mode or is_today:
-        if live_mode:
-            date_str = ist_now().strftime("%Y-%m-%d")
-        # For today, we always use the main accumulating file. 
-        # This prevents duplicate fetching and extra snapshot files.
+    if live_mode:
+        date_str = ist_now().strftime("%Y-%m-%d")
+        # In Live-streaming mode, we use the main accumulating file.
         time_str = ""
 
     try:
