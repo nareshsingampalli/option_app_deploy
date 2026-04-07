@@ -27,11 +27,19 @@ class NSELivePipeline(MarketDataPipeline):
         self._spot_key = NSE_INDEX_KEYS.get(symbol.upper(), NSE_INDEX_KEYS["NIFTY"])
 
     def fetch_spot_price(self, target_date: str, target_time: Optional[str]) -> Optional[float]:
-        print("[NSELive] Fetching live spot...")
+        print(f"[NSELive] Fetching spot for {target_date} {target_time or '(Latest)'}...")
         df = self.fetcher.get_spot_candles(self._spot_key, target_date)
-        if df is not None and not df.empty:
-            return float(df["close"].iloc[-1])
-        return None
+        if df is None or df.empty:
+            return None
+        
+        if target_time:
+            # Find row exactly matching HH:MM (ignoring seconds)
+            match = df[df.index.astype(str).str.contains(target_time)]
+            if not match.empty:
+                return float(match["close"].iloc[-1])
+        
+        # Default to latest
+        return float(df["close"].iloc[-1])
 
     def build_spot_map(self, target_date: str) -> dict:
         df = self.fetcher.get_spot_candles(self._spot_key, target_date)
