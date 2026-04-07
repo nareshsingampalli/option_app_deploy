@@ -342,3 +342,43 @@ input:checked+.slider-toggle:before {
         font-size: 10px !important;
     }
 }
+/* -- Skeleton Loading & Pulse Animations ---------------------------------- */
+@keyframes shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+}
+
+.skeleton-chart {
+    width: 100%;
+    height: 480px;
+    background: #f0f0f0;
+    background: linear-gradient(90deg, #f0f0f0 25%, #f8f8f8 50%, #f0f0f0 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite linear;
+    border-radius: 4px;
+    margin-top: 10px;
+}
+
+@keyframes pulse {
+    0% { opacity: 0.4; }
+    50% { opacity: 0.8; }
+    100% { opacity: 0.4; }
+}
+
+.pulse-text {
+    animation: pulse 1.5s infinite ease-in-out;
+    background-color: #e3f2fd;
+    border-radius: 4px;
+    display: inline-block;
+}
+
+.skeleton-sidebar {
+    height: 20px;
+    margin: 8px 0;
+    width: 100%;
+    background: #f0f0f0;
+    background: linear-gradient(90deg, #f0f0f0 25%, #f8f8f8 50%, #f0f0f0 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite linear;
+    border-radius: 3px;
+}

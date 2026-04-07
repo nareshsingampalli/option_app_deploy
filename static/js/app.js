@@ -194,9 +194,31 @@ function fetchData(silent = false) {
     }
 
     if (!silent) {
-        // Clear active UI state immediately to prevent showing yesterday/stale data
+        // Show pulse states in header and sidebars
+        const spotEl = document.getElementById('spot-price-display');
+        if (spotEl) {
+            spotEl.innerHTML = `<strong>Spot Price:</strong> <span class="pulse-text" style="width: 80px; height: 18px; vertical-align: middle;"></span>`;
+        }
+        
+        const expiryEl = document.getElementById('expiry-display');
+        if (expiryEl) {
+            expiryEl.innerHTML = `<strong>Expiry:</strong> <span class="pulse-text" style="width: 100px; height: 18px; vertical-align: middle;"></span>`;
+        }
+
+        const lastUpdatedEl = document.getElementById('last-updated-display');
+        if (lastUpdatedEl) {
+            lastUpdatedEl.innerHTML = `<span class="pulse-text" style="width: 180px; height: 14px;"></span>`;
+        }
+
         chartRenderer.clear ? chartRenderer.clear() : null;
-        instrumentSelector.clear ? instrumentSelector.clear() : null;
+        
+        // Show skeleton list in sidebar
+        if (instrumentSelector.container) {
+            instrumentSelector.container.innerHTML = Array(12).fill(0).map(() => 
+                `<div class="skeleton-sidebar"></div>`
+            ).join('');
+        }
+        
         dataService.clearData();
     }
     

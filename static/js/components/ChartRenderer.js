@@ -20,7 +20,19 @@ class ChartRenderer extends UIComponent {
     }
 
     clear() {
-        if (this.container) this.container.innerHTML = '';
+        if (this.container) {
+            const selectedMetrics = this._metrics.selected();
+            if (selectedMetrics.length === 0) {
+                this.container.innerHTML = '';
+                return;
+            }
+            this.container.innerHTML = selectedMetrics.map(metric => `
+                <div class="chart-container">
+                    <div class="chart-header">${this._metrics.label(metric)}</div>
+                    <div class="skeleton-chart"></div>
+                </div>
+            `).join('');
+        }
     }
 
     render(rawData, selectedInstruments, referenceSpotPrice = null) {
