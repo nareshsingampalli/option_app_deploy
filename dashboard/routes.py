@@ -251,6 +251,34 @@ def get_option_data():
         except Exception:
             pass
 
+    # ── High-Speed Main-File Bootstrapping Logic ──────────────────────────────
+    if not file_exists and time_str:
+        # Check if we have the RAW main file for the whole day
+        main_suffix = f"_int{interval}"
+        main_csv_path = os.path.join(os.getcwd(), dir_name, f"{prefix}_{sym}_tabular_{date_str}{main_suffix}.csv")
+        
+        if os.path.exists(main_csv_path):
+            print(f"[API] High-speed bootstrap: filtering {time_str} from {main_csv_path}")
+            try:
+                import pandas as pd
+                mdf = pd.read_csv(main_csv_path)
+                mdf["date"] = mdf["date"].astype(str)
+                # Filter for all data leading up to target_time
+                snapshot_df = mdf[mdf["date"].str.contains(fr"\s{time_str.replace(':', ':')}:")]
+                if not snapshot_df.empty:
+                    snapshot_df.to_csv(csv_path, index=False)
+                    # Also clone meta
+                    main_meta_path = main_csv_path.replace("tabular", "meta").replace(".csv", ".json")
+                    if os.path.exists(main_meta_path):
+                        import shutil
+                        shutil.copy2(main_meta_path, meta_path)
+                    
+                    file_exists = True
+                    needs_fetch = False
+                    print(f"[API] Bootstrap successful. Snapshot saved.")
+            except Exception as e:
+                print(f"[API] Bootstrap error: {e}")
+
     if needs_fetch:
         from dashboard.scheduler import get_lock
         lock = get_lock(symbol)
