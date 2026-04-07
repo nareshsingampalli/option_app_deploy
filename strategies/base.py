@@ -148,7 +148,7 @@ class MarketDataPipeline(ABC):
         df = df.rename(columns={"close": "ltp", "open_interest": "oi"})
         df["change_in_oi"] = df["oi"].diff().fillna(0)
 
-        expiry_with_time = inst.expiry.replace(hour=15, minute=30)
+        expiry_with_time = inst.expiry.replace(hour=self.market_end.hour, minute=self.market_end.minute)
         iv_list: list[float] = []
 
         for idx, row in df.iterrows():
