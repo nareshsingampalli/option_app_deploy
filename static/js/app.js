@@ -345,3 +345,19 @@ document.getElementById('loading').style.display = 'none';
         fetchData();
     }
 })();
+
+// ── Auto-Open Background Timer ──────────────────────────────────────────────
+// If the user leaves the tab open, check every 60 seconds if the market has
+// since opened, and auto-activate Live mode if it has.
+setInterval(async () => {
+    if (!isLiveMode) {
+        const exchange = symbolSelector.exchange || 'NSE';
+        // fetchMarketStatus has an internal 60s cache, so this is safe to call
+        const status = await fetchMarketStatus(exchange);
+        if (status.is_open) {
+            console.log(`[App] Market has opened. Switching to Live Mode...`);
+            liveToggle.checked = true;
+            liveToggle.dispatchEvent(new Event('change'));
+        }
+    }
+}, 60000);
