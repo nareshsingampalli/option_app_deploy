@@ -9,6 +9,8 @@ import subprocess
 import time
 
 import pandas as pd
+import numpy as np
+import shutil
 from flask import jsonify, render_template, request
 from datetime import datetime
 from flask_socketio import join_room, leave_room, rooms
@@ -181,7 +183,6 @@ def get_option_data():
         main_csv_path = os.path.join(os.getcwd(), dir_name, f"{prefix}_{sym}_tabular_{date_str}_int{interval}.csv")
         if os.path.exists(main_csv_path):
             try:
-                import pandas as pd
                 mdf = pd.read_csv(main_csv_path)
                 mdf["date"] = mdf["date"].astype(str)
                 time_rows = mdf[mdf["date"].str.contains(fr"\s{time_str.replace(':', ':')}:")]

@@ -17,4 +17,4 @@ if __name__ == "__main__":
     print("Starting Option Chain Dashboard on port 8010...")
     print(f"Starting schedulers (minute % {CANDLE_INTERVAL_MINUTES} == 0 cycle during market hours)...")
     start_schedulers()
-    socketio.run(app, host="0.0.0.0", port=8010, debug=True, allow_unsafe_werkzeug=True)
+    socketio.run(app, host="0.0.0.0", port=8010, debug=False, allow_unsafe_werkzeug=True)
