@@ -89,13 +89,12 @@ class HistoricalCandleFetcher(BaseCandleFetcher):
 
     # ── Unified interface ────────────────────────────────────────────────────
     def _get_prev_trading_day(self, date_str: str) -> str:
-        """Helper to find the date of the preceding trading session."""
+        """Helper to find the date of the preceding trading session, skipping weekends & holidays."""
+        from core.utils import get_last_trading_day
         dt = datetime.strptime(date_str, "%Y-%m-%d")
-        prev = dt - timedelta(days=1)
-        # 5=Saturday, 6=Sunday. Skip backwards.
-        while prev.weekday() >= 5:
-            prev -= timedelta(days=1)
-        return prev.strftime("%Y-%m-%d")
+        # Go back one day first, then find the last trading day from there
+        prev_dt = dt - timedelta(days=1)
+        return get_last_trading_day(prev_dt).strftime("%Y-%m-%d")
 
     def get_candles(self, instrument_key: str, date_str: str, expiry_dt=None) -> pd.DataFrame | None:
         self.used_fallback = False
