@@ -69,17 +69,24 @@ class TimeSelector extends UIComponent {
             const labelsGrid = this.container.nextElementSibling;
             if (labelsGrid && labelsGrid.children.length >= 3) {
                 const interval = this._interval || 15;
+                const now = new Date();
+                const ist = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+                const currentMins = ist.getHours() * 60 + ist.getMinutes();
+                const datePicker = document.getElementById('date-picker');
+                const isToday = datePicker ? datePicker.value === ist.toLocaleDateString('en-CA') : false;
+
                 if (this._exchange === 'NSE') {
-                    labelsGrid.children[0].textContent = this._minutesToHHMM(9*60+15 + interval);
-                    // Dynamic middle label
-                    const totalT = (15 * 60 + 30) - (9 * 60 + 15 + interval);
-                    labelsGrid.children[1].textContent = this._minutesToHHMM(9*60+15 + interval + totalT/2);
-                    labelsGrid.children[2].textContent = '15:30';
+                    const startM = 9 * 60 + 15 + interval;
+                    const endM = isToday ? Math.min(15 * 60 + 30, currentMins) : 15 * 60 + 30;
+                    labelsGrid.children[0].textContent = this._minutesToHHMM(startM);
+                    labelsGrid.children[1].textContent = this._minutesToHHMM(startM + (endM - startM) / 2);
+                    labelsGrid.children[2].textContent = this._minutesToHHMM(endM);
                 } else {
-                    labelsGrid.children[0].textContent = this._minutesToHHMM(9*60 + interval);
-                    const totalT = (23 * 60 + 30) - (9 * 60 + interval);
-                    labelsGrid.children[1].textContent = this._minutesToHHMM(9*60 + interval + totalT/2);
-                    labelsGrid.children[2].textContent = '23:30';
+                    const startM = 9 * 60 + interval;
+                    const endM = isToday ? Math.min(23 * 60 + 30, currentMins) : 23 * 60 + 30;
+                    labelsGrid.children[0].textContent = this._minutesToHHMM(startM);
+                    labelsGrid.children[1].textContent = this._minutesToHHMM(startM + (endM - startM) / 2);
+                    labelsGrid.children[2].textContent = this._minutesToHHMM(endM);
                 }
             }
         }
