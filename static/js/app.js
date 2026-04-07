@@ -108,7 +108,7 @@ dataService.subscribe((records, isInitial) => {
 });
 
 // ── Wiring: Symbol Selection → Data Fetch ────────────────────────────────────
-symbolSelector.onChange(({ exchange, symbol }) => {
+symbolSelector.onChange(async ({ exchange, symbol }) => {
     console.log(`[App] Market changed: ${exchange} - ${symbol}`);
     timeSelector.setExchange(exchange);
     
@@ -116,6 +116,22 @@ symbolSelector.onChange(({ exchange, symbol }) => {
     chartRenderer.clear ? chartRenderer.clear() : null; 
     dataService.clear(); 
     
+    // ── Handle Auto-Live Toggle on Exchange Switch ───────────────────────
+    const status = await fetchMarketStatus(exchange);
+    if (!status.is_open && isLiveMode) {
+        console.log(`[App] ${exchange} is closed. Switching off Live Mode.`);
+        isLiveMode = false;
+        liveToggle.checked = false;
+        datePicker.disabled = false;
+    } else if (status.is_open && !isLiveMode) {
+        console.log(`[App] ${exchange} is open. Activating Live Mode.`);
+        isLiveMode = true;
+        liveToggle.checked = true;
+        datePicker.disabled = true;
+        const todayStr = new Date().toLocaleDateString('en-CA');
+        datePicker.value = todayStr;
+    }
+
     // Always initialize WebSocket and join room to listen for background fetch updates (historical or live)
     dataService.initWebSocket(exchange, symbol);
     
