@@ -331,6 +331,14 @@ liveToggle.addEventListener('change', async () => {
         const todayStr = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD
         datePicker.value = todayStr;
         datePicker.disabled = true;
+        
+        // Auto-reset slider to the end when turning Live Mode back ON
+        const slider = document.getElementById('time-slider');
+        if (slider) {
+            slider.value = slider.max;
+            timeSelector.updateDisplay();
+        }
+
         dataService.initWebSocket(symbolSelector.exchange, symbolSelector.symbol);
         fetchData();
     } else {
