@@ -87,7 +87,7 @@ class LiveHandler(StrategyHandler):
 
 class TodayGuardHandler(StrategyHandler):
     def handle(self, ctx, storage):
-        # Block today's date if not in Live mode OR market is currently open
+        # Allow requests if it's today BUT the market is closed (Intraday Recovery Mode)
         if ctx.target_date == ctx.today_str and not ctx.live_mode:
             from core.utils import ist_now
             from core.config import SCHEDULER_HOURS
@@ -98,17 +98,21 @@ class TodayGuardHandler(StrategyHandler):
             start_t = datetime.strptime(cfg["start"], "%H:%M:%S").time()
             end_t = datetime.strptime(cfg["end"], "%H:%M:%S").time()
             
-            # Convert to seconds for comparison
             def s(t): return t.hour * 3600 + t.minute * 60 + t.second
-            
             is_open = s(start_t) <= s(now_t) <= s(end_t)
             
             if is_open:
                 print(f"[StrategyChain] BLOCKED: {ctx.target_date} is today and market is OPEN. Enable Live mode.")
                 return None
             else:
-                print(f"[StrategyChain] ALLOWED: {ctx.target_date} is today but market is CLOSED. Accessing historical snapshot.")
-                # Allow it to fall through to HistoricalHandler
+                print(f"[StrategyChain] INTRADAY RECOVERY: {ctx.target_date} is today but market is CLOSED. Accessing intraday fetcher.")
+                # Force onto the LivePipeline (which uses the high-res Intraday fetcher)
+                fetcher = CandleFetcherFactory.create(ctx.target_date, live_mode=True, interval=ctx.interval)
+                if ctx.exchange == "MCX":
+                    from strategies.mcx import MCXLivePipeline
+                    return MCXLivePipeline(fetcher, MCXInstrumentResolver(), storage, symbol=ctx.symbol)
+                from strategies.nse import NSELivePipeline
+                return NSELivePipeline(fetcher, NSEActiveResolver(), storage, symbol=ctx.symbol)
             
         return self._forward(ctx, storage)
 
