@@ -43,52 +43,67 @@ dataService.subscribe((records, isInitial) => {
         console.warn("[App] No records received.");
         return;
     }
-    // 1. Update instrument list
+    
+    // ── Sync Instrument List — Automatic Side-Bar Update ───────────────────
+    const firstRow = records[0];
+    const spotPrice = parseFloat(firstRow.spot_price) || null;
     const currentSymbol = symbolSelector.symbol;
-    const currentDate = (records[0] && records[0].date) ? records[0].date.split(' ')[0] : '';
+    const currentDate = (firstRow && firstRow.date) ? firstRow.date.split(' ')[0] : '';
+    
+    // Extract candidate instrument info from the data
+    const symbols = [...new Set(records.map(r => r.symbol))].sort();
+    const currentInstrumentInfo = symbols.map(sym => {
+        const row = records.find(r => r.symbol === sym);
+        let label = sym;
+        let strike = null;
+        let type = null;
+        if (row && row.strike && row.option_type) {
+            const baseMatch = sym.match(/^[A-Z]+/);
+            const baseSym = baseMatch ? baseMatch[0] : '';
+            label = `${baseSym} ${row.strike} ${row.option_type}`;
+            strike = row.strike;
+            type = row.option_type;
+        }
+        return { symbol: sym, label: label, strike: strike, type: type };
+    });
+
     const hasInstruments = document.querySelectorAll('.instrument-cb').length > 0;
     
-    // Force re-render if it's initial, or no instruments, or the symbol/date has changed
+    // Force re-render if it's initial, or no instruments, OR the set of strikes has changed
+    const existingSymbols = (instrumentSelector._lastInstrumentInfo || []).map(x => x.symbol);
+    const incomingSymbols = currentInstrumentInfo.map(x => x.symbol);
+    const strikesShifted = existingSymbols.length !== incomingSymbols.length || 
+                          !incomingSymbols.every(s => existingSymbols.includes(s));
+
     const needsRefresh = isInitial || !hasInstruments || 
                          currentRenderedSymbol !== currentSymbol || 
-                         currentRenderedDate !== currentDate;
+                         currentRenderedDate !== currentDate ||
+                         strikesShifted;
 
     if (needsRefresh) {
         try {
-            const symbols = [...new Set(records.map(r => r.symbol))].sort();
-            const instrumentInfo = symbols.map(sym => {
-                const row = records.find(r => r.symbol === sym);
-                let label = sym;
-                let strike = null;
-                let type = null;
-                if (row && row.strike && row.option_type) {
-                    const baseMatch = sym.match(/^[A-Z]+/);
-                    const baseSym = baseMatch ? baseMatch[0] : '';
-                    label = `${baseSym} ${row.strike} ${row.option_type}`;
-                    strike = row.strike;
-                    type = row.option_type;
-                }
-                return { symbol: sym, label: label, strike: strike, type: type };
-            });
-            if (instrumentInfo.length > 0) {
-                // Read spot price so colors reflect ITM/ATM/OTM immediately
-                const spotEl = document.getElementById('spot-price-display');
-                let spotForRender = null;
-                if (spotEl && spotEl.textContent) {
-                    const m = spotEl.textContent.match(/[\d.]+/);
-                    if (m) spotForRender = parseFloat(m[0]);
-                }
-                instrumentSelector.render(instrumentInfo, spotForRender);
+            if (currentInstrumentInfo.length > 0) {
+                console.log(`[App] Instrument list shifted or new load. Syncing sidebar...`);
+                instrumentSelector.render(currentInstrumentInfo, spotPrice);
                 currentRenderedSymbol = currentSymbol;
                 currentRenderedDate = currentDate;
+                
+                // Re-apply filters (like Scalping) if any was active
+                const allButtons = document.querySelectorAll('#selector-toggles .btn');
+                const anyActive = Array.from(allButtons).some(b => b.classList.contains('active') && b.id !== 'btn-all');
+                if (anyActive && window.applyCurrentFilters) {
+                    window.applyCurrentFilters();
+                }
             }
         } catch (e) {
-            console.error("[App] Instrument list render error:", e);
+            console.error("[App] Instrument list sync error:", e);
         }
+    } else {
+        // Just re-calculate ATM/ITM labels/colors in place without re-rendering the whole sidebar
+        instrumentSelector.recolor(spotPrice);
     }
 
-    // 2. Apply active filters (e.g. Scalping default) and render charts
-    if (window.applyCurrentFilters) window.applyCurrentFilters();
+    // 2. Render charts
     renderCharts();
 });
 
