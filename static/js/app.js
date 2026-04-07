@@ -104,6 +104,7 @@ symbolSelector.onChange(({ exchange, symbol }) => {
     // Always initialize WebSocket and join room to listen for background fetch updates (historical or live)
     dataService.initWebSocket(exchange, symbol);
     
+    updateIntervalAvailability();
     fetchData();
 });
 
@@ -196,6 +197,7 @@ datePicker.addEventListener('change', () => {
             showNotice(`The selected date (${dateVal}) is a trading holiday (Weekend). No data will be fetched.`);
         }
     }
+    updateIntervalAvailability();
     fetchData();
 });
 
@@ -329,11 +331,59 @@ delete window.toggleOptionType;
 
 window.refreshToken = refreshToken;
 
+// ── Interval Availability Logic ───────────────────────────────────────────
+function updateIntervalAvailability() {
+    const exchange = symbolSelector.exchange || 'NSE';
+    const intervalSelect = document.getElementById('interval-select');
+    if (!intervalSelect) return;
+
+    const now = new Date();
+    const ist = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+    
+    // Market open in minutes from midnight
+    const marketOpenMinutes = (exchange === 'NSE') ? (9 * 60 + 15) : (9 * 60);
+    const currentMinutes = ist.getHours() * 60 + ist.getMinutes();
+    const elapsedMinutes = currentMinutes - marketOpenMinutes;
+
+    const datePicker = document.getElementById('date-picker');
+    const isToday = datePicker.value === ist.toLocaleDateString('en-CA');
+
+    let firstAvailable = null;
+    Array.from(intervalSelect.options).forEach(opt => {
+        const intervalVal = parseInt(opt.value);
+        
+        // If today, only enable if at least one candle has completed
+        if (isToday && elapsedMinutes >= 0 && elapsedMinutes < 720) { // Keep logic for morning/day
+            if (elapsedMinutes < intervalVal) {
+                opt.disabled = true;
+                opt.style.backgroundColor = '#f8f8f8';
+                opt.style.color = '#bbb';
+            } else {
+                opt.disabled = false;
+                opt.style.backgroundColor = '';
+                opt.style.color = '';
+                if (!firstAvailable) firstAvailable = opt.value;
+            }
+        } else {
+            opt.disabled = false;
+            opt.style.backgroundColor = '';
+            opt.style.color = '';
+        }
+    });
+
+    // Auto-switch if user was on a 15m but it's now disabled (e.g. at 09:20 AM)
+    if (intervalSelect.selectedOptions[0] && intervalSelect.selectedOptions[0].disabled) {
+        intervalSelect.value = firstAvailable || "1";
+        timeSelector.reconfigure(exchange, parseInt(intervalSelect.value));
+    }
+}
+
 // ── Start ────────────────────────────────────────────────────────────────────
 timeSelector.setExchange('NSE');
 document.getElementById('loading').style.display = 'none';
 
 (async () => {
+    updateIntervalAvailability();
     const status = await fetchMarketStatus(symbolSelector.exchange);
     if (status.is_open) {
         console.log(`[App] Market is open (${status.now_ist} IST). Activating Live Mode automatically...`);
@@ -347,12 +397,10 @@ document.getElementById('loading').style.display = 'none';
 })();
 
 // ── Auto-Open Background Timer ──────────────────────────────────────────────
-// If the user leaves the tab open, check every 60 seconds if the market has
-// since opened, and auto-activate Live mode if it has.
 setInterval(async () => {
+    updateIntervalAvailability();
     if (!isLiveMode) {
         const exchange = symbolSelector.exchange || 'NSE';
-        // fetchMarketStatus has an internal 60s cache, so this is safe to call
         const status = await fetchMarketStatus(exchange);
         if (status.is_open) {
             console.log(`[App] Market has opened. Switching to Live Mode...`);
