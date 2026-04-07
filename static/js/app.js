@@ -76,19 +76,30 @@ dataService.subscribe((records, isInitial) => {
     
     // Force re-render if it's initial, or no instruments, OR the set of strikes has changed
     const existingSymbols = (instrumentSelector._lastInstrumentInfo || []).map(x => x.symbol);
-    const incomingSymbols = currentInstrumentInfo.map(x => x.symbol);
     const strikesShifted = existingSymbols.length !== incomingSymbols.length || 
                           !incomingSymbols.every(s => existingSymbols.includes(s));
+    
+    const strikes = currentInstrumentInfo.map(x => parseFloat(x.strike)).filter(s => !isNaN(s));
+    
+    // Proactive refresh: If spot is within the outer 15% of our strike range, or completely outside
+    let isSpotOutsideRange = false;
+    if (strikes.length > 0 && spotPrice) {
+        const minS = Math.min(...strikes);
+        const maxS = Math.max(...strikes);
+        const range = maxS - minS;
+        const buffer = range * 0.15; // 15% margin
+        isSpotOutsideRange = (spotPrice < (minS + buffer)) || (spotPrice > (maxS - buffer));
+    }
 
     const needsRefresh = isInitial || !hasInstruments || 
                          currentRenderedSymbol !== currentSymbol || 
                          currentRenderedDate !== currentDate ||
-                         strikesShifted;
+                         strikesShifted || isSpotOutsideRange;
 
     if (needsRefresh) {
         try {
             if (currentInstrumentInfo.length > 0) {
-                console.log(`[App] Instrument list shifted or new load. Syncing sidebar...`);
+                console.log(`[App] Instrument list shifted or new load (Spot: ${spotPrice}). Syncing sidebar...`);
                 instrumentSelector.render(currentInstrumentInfo, spotPrice);
                 
                 // Update Sidebar Labels: Spot Price & Date
@@ -101,11 +112,9 @@ dataService.subscribe((records, isInitial) => {
                 currentRenderedSymbol = currentSymbol;
                 currentRenderedDate = currentDate;
                 
-                // Re-apply filters (like Scalping) if any was active
-                const allButtons = document.querySelectorAll('#selector-toggles .btn');
-                const anyActive = Array.from(allButtons).some(b => b.classList.contains('active') && b.id !== 'btn-all');
-                if (anyActive && window.applyCurrentFilters) {
-                    window.applyCurrentFilters();
+                // After full render, always apply current filters (Scalping, etc.)
+                if (window.applyCurrentFilters) {
+                    window.applyCurrentFilters(false);
                 }
             }
         } catch (e) {
@@ -114,6 +123,11 @@ dataService.subscribe((records, isInitial) => {
     } else {
         // Just re-calculate ATM/ITM labels/colors in place without re-rendering the whole sidebar
         instrumentSelector.recolor(spotPrice);
+        
+        // Even if list didn't change, the SELECTION might need to move (e.g. Scalping ATM changed)
+        if (window.applyCurrentFilters) {
+            window.applyCurrentFilters(false);
+        }
     }
 
     // 2. Render charts
@@ -393,7 +407,7 @@ window.handleSelectorClick = (type) => {
     window.applyCurrentFilters();
 };
 
-window.applyCurrentFilters = () => {
+window.applyCurrentFilters = (notify = true) => {
     // Extract current state
     const states = {
         all: document.getElementById('btn-all').classList.contains('active'),
@@ -412,7 +426,7 @@ window.applyCurrentFilters = () => {
         if (match) spotPrice = parseFloat(match[0]);
     }
 
-    instrumentSelector.applySelection(states, spotPrice);
+    instrumentSelector.applySelection(states, spotPrice, notify);
 };
 
 // Cleanup old global

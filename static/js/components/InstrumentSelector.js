@@ -118,7 +118,7 @@ class InstrumentSelector extends UIComponent {
     }
 
     // ── Selection helpers ────────────────────────────────────────────────────
-    applySelection(states, spotPrice = null) {
+    applySelection(states, spotPrice = null, notify = true) {
         const checkboxes = Array.from(this.container.querySelectorAll('.instrument-cb'));
 
         checkboxes.forEach(cb => cb.checked = false);
@@ -183,7 +183,7 @@ class InstrumentSelector extends UIComponent {
             });
         }
 
-        this._notify();
+        if (notify) this._notify();
     }
 
     selected() {

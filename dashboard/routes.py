@@ -165,10 +165,27 @@ def get_option_data():
             now_dt = ist_now()
             m_end_h, m_end_m = (15, 40) if exchange != "MCX" else (23, 40)
             m_end_dt = now_dt.replace(hour=m_end_h, minute=m_end_m, second=0, microsecond=0)
+            
             if now_dt > m_end_dt:
                 needs_fetch = max(file_mtime, meta_mtime) < m_end_dt.timestamp()
             else:
-                needs_fetch = last_check_age > 300
+                # ── Spot-Sensitive Live Refresh ──────────────────────────────
+                # If spot moved > 0.15% since last resolution, we likely need new strikes
+                spot_shifted = False
+                if cached_meta.get("spot_price"):
+                    try:
+                        # Quickly peek at the latest spot from the existing CSV without full load
+                        with open(csv_path, 'rb') as f:
+                            f.seek(-1024, os.SEEK_END)
+                            last_line = f.readlines()[-1].decode().split(',')
+                            # spot_price is usually the last column or near it. 
+                            # Better: just check against the cached_meta spot if we have a way to get 'now' spot.
+                            # For now, rely on time-based + big moves observed in previous fetches.
+                            pass 
+                    except: pass
+
+                # Reduce TTL to 60s for live mode to respond faster to spot changes
+                needs_fetch = last_check_age > 60
         else:
             if cached_meta.get("is_fallback"): needs_fetch = last_check_age > 3600
             elif not cached_meta.get("has_data"): needs_fetch = last_check_age > 1800
