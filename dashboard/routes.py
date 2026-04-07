@@ -41,6 +41,57 @@ def view_logs():
         return f"Error reading logs: {e}", 500
 
 
+@app.route("/api/market-status")
+def market_status():
+    """
+    Single source of truth for market hours.
+    Returns whether the market is currently open for a given exchange,
+    along with the configured trading window.
+    Frontend should call this instead of duplicating timing logic in JS.
+    """
+    from core.utils import get_last_trading_day, TRADING_HOLIDAYS_2026
+
+    exchange = request.args.get("exchange", "NSE").upper()
+
+    cfg = SCHEDULER_HOURS.get(exchange, SCHEDULER_HOURS["NSE"])
+    start_str = cfg["start"][:5]   # "HH:MM"
+    end_str   = cfg["end"][:5]     # "HH:MM"
+
+    now      = ist_now()
+    today_str = now.strftime("%Y-%m-%d")
+    now_t    = now.time()
+
+    start_t  = datetime.strptime(cfg["start"], "%H:%M:%S").time()
+    end_t    = datetime.strptime(cfg["end"],   "%H:%M:%S").time()
+
+    # Is today a valid trading day?
+    trading_day = get_last_trading_day(now).strftime("%Y-%m-%d")
+    is_trading_day = (trading_day == today_str)
+
+    def secs(t):
+        return t.hour * 3600 + t.minute * 60 + t.second
+
+    is_open = is_trading_day and (secs(start_t) <= secs(now_t) <= secs(end_t))
+
+    if not is_trading_day:
+        reason = "weekend" if now.weekday() >= 5 else "holiday"
+    elif secs(now_t) < secs(start_t):
+        reason = "pre_market"
+    elif secs(now_t) > secs(end_t):
+        reason = "post_market"
+    else:
+        reason = "open"
+
+    return jsonify({
+        "exchange":   exchange,
+        "is_open":    is_open,
+        "reason":     reason,
+        "start":      start_str,
+        "end":        end_str,
+        "now_ist":    now.strftime("%H:%M:%S"),
+    })
+
+
 @app.route("/api/refresh-token", methods=["POST"])
 def refresh_token():
     try:

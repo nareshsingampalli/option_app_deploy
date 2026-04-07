@@ -212,48 +212,50 @@ document.getElementById('interval-select').addEventListener('change', () => {
     fetchData();
 });
 
-function isMarketOpen(exchange = 'NSE') {
-    const now = new Date();
-    const istTime = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
-    const day = istTime.getDay();
-    const hour = istTime.getHours();
-    const min = istTime.getMinutes();
-    const timeVal = hour * 100 + min;
+// ── Market Status (single source of truth: fetched from backend) ─────────────
+const _marketStatusCache = {};  // { exchange: { ts, is_open, start, end, reason } }
+const MARKET_STATUS_TTL_MS = 60_000; // re-check at most once per minute
 
-    // Weekend Check
-    if (day === 0 || day === 6) return false;
-
-    // Hours Check
-    if (exchange === 'NSE') {
-        return (timeVal >= 1000 && timeVal <= 1530);
-    } else if (exchange === 'MCX') {
-        return (timeVal >= 900 && timeVal <= 2330);
+async function fetchMarketStatus(exchange = 'NSE') {
+    const cached = _marketStatusCache[exchange];
+    if (cached && (Date.now() - cached.ts) < MARKET_STATUS_TTL_MS) {
+        return cached;
     }
-    return false;
+    try {
+        const res = await fetch(`/api/market-status?exchange=${exchange}`);
+        const data = await res.json();
+        _marketStatusCache[exchange] = { ...data, ts: Date.now() };
+        return _marketStatusCache[exchange];
+    } catch (e) {
+        console.warn('[App] Could not reach /api/market-status, falling back to cache:', e);
+        return cached || { is_open: false, reason: 'unknown', start: '09:15', end: '15:30' };
+    }
 }
 
-liveToggle.addEventListener('change', () => {
+liveToggle.addEventListener('change', async () => {
     isLiveMode = liveToggle.checked;
     const exchange = symbolSelector.exchange || 'NSE';
 
-    if (isLiveMode && !isMarketOpen(exchange)) {
-        const range = exchange === 'NSE' ? '10:00 AM - 03:30 PM' : '09:00 AM - 11:30 PM';
-        showNotice(`Market is closed for ${exchange}. Live mode is only available Mon-Fri, ${range} IST.`);
-        liveToggle.checked = false;
-        isLiveMode = false;
-        return;
-    }
-
     if (isLiveMode) {
+        const status = await fetchMarketStatus(exchange);
+        if (!status.is_open) {
+            showNotice(
+                `Market is closed for ${exchange}. ` +
+                `Live mode is available Mon-Fri, ${status.start}–${status.end} IST. ` +
+                `(Server: ${status.now_ist} IST, reason: ${status.reason})`
+            );
+            liveToggle.checked = false;
+            isLiveMode = false;
+            return;
+        }
         const todayStr = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD
         datePicker.value = todayStr;
         datePicker.disabled = true;
-        // WS is already initialized by SymbolSelector, but we ensure it's correct
         dataService.initWebSocket(symbolSelector.exchange, symbolSelector.symbol);
         fetchData();
     } else {
         datePicker.disabled = false;
-        // We keep the socket open to hear about background historical fetches
+        // Keep socket open to hear about background historical fetches
     }
 });
 
@@ -331,12 +333,15 @@ window.refreshToken = refreshToken;
 timeSelector.setExchange('NSE');
 document.getElementById('loading').style.display = 'none';
 
-if (isMarketOpen(symbolSelector.exchange)) {
-    console.log("[App] Market is open (IST). Activating Live Mode automatically...");
-    liveToggle.checked = true;
-    liveToggle.dispatchEvent(new Event('change'));
-} else {
-    // Join room anyway to listen for updates to default symbol
-    dataService.initWebSocket(symbolSelector.exchange, symbolSelector.symbol);
-    fetchData();
-}
+(async () => {
+    const status = await fetchMarketStatus(symbolSelector.exchange);
+    if (status.is_open) {
+        console.log(`[App] Market is open (${status.now_ist} IST). Activating Live Mode automatically...`);
+        liveToggle.checked = true;
+        liveToggle.dispatchEvent(new Event('change'));
+    } else {
+        console.log(`[App] Market closed (${status.reason}). Loading historical data...`);
+        dataService.initWebSocket(symbolSelector.exchange, symbolSelector.symbol);
+        fetchData();
+    }
+})();
