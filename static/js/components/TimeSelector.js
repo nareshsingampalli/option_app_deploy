@@ -19,13 +19,13 @@ class TimeSelector extends UIComponent {
         this._interval = interval;
         
         if (exch === 'NSE') {
-            const start = 9 * 60 + 15;
+            const start = 9 * 60 + 15 + interval; // Start at first candle close
             const end = 15 * 60 + 30;
-            this.container.max = Math.floor((end - start) / interval);
+            this.container.max = Math.max(0, Math.floor((end - start) / interval));
         } else {
-            const start = 9 * 60;
+            const start = 9 * 60 + interval;
             const end = 23 * 60 + 30;
-            this.container.max = Math.floor((end - start) / interval);
+            this.container.max = Math.max(0, Math.floor((end - start) / interval));
         }
         this.container.value = this.container.max;
         this.updateDisplay();
@@ -35,11 +35,11 @@ class TimeSelector extends UIComponent {
         const val = parseInt(this.container.value);
         const interval = this._interval || 15;
         if (this._exchange === 'NSE') {
-            const startMinutes = 9 * 60 + 15;
+            const startMinutes = 9 * 60 + 15 + interval; // First completed candle
             const totalMinutes = startMinutes + (val * interval);
             return this._minutesToHHMM(totalMinutes);
         } else {
-            const startMinutes = 9 * 60;
+            const startMinutes = 9 * 60 + interval;
             const totalMinutes = startMinutes + (val * interval);
             return this._minutesToHHMM(totalMinutes);
         }
@@ -56,16 +56,17 @@ class TimeSelector extends UIComponent {
             // Update the min/max labels beneath the slider
             const labelsGrid = this.container.nextElementSibling;
             if (labelsGrid && labelsGrid.children.length >= 3) {
+                const interval = this._interval || 15;
                 if (this._exchange === 'NSE') {
-                    labelsGrid.children[0].textContent = '09:15';
+                    labelsGrid.children[0].textContent = this._minutesToHHMM(9*60+15 + interval);
                     // Dynamic middle label
-                    const totalT = (15 * 60 + 30) - (9 * 60 + 15);
-                    labelsGrid.children[1].textContent = this._minutesToHHMM(9*60+15 + totalT/2);
+                    const totalT = (15 * 60 + 30) - (9 * 60 + 15 + interval);
+                    labelsGrid.children[1].textContent = this._minutesToHHMM(9*60+15 + interval + totalT/2);
                     labelsGrid.children[2].textContent = '15:30';
                 } else {
-                    labelsGrid.children[0].textContent = '09:00';
-                    const totalT = (23 * 60 + 30) - (9 * 60);
-                    labelsGrid.children[1].textContent = this._minutesToHHMM(9*60 + totalT/2);
+                    labelsGrid.children[0].textContent = this._minutesToHHMM(9*60 + interval);
+                    const totalT = (23 * 60 + 30) - (9 * 60 + interval);
+                    labelsGrid.children[1].textContent = this._minutesToHHMM(9*60 + interval + totalT/2);
                     labelsGrid.children[2].textContent = '23:30';
                 }
             }
