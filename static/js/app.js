@@ -17,6 +17,7 @@ let isLiveMode = false;
 let refreshInterval = null;
 let currentRenderedSymbol = null; 
 let currentRenderedDate = null; 
+let currentReferenceSpotPrice = null;
 
 // ── Notification Helper ─────────────────────────────────────────────────────
 function showNotice(message, duration = 5000) {
@@ -49,6 +50,7 @@ dataService.subscribe((records, isInitial) => {
     // Find the specific record for our slider time to get the correct spot price
     const matchingRow = records.find(r => r.date.includes(targetTime)) || records[records.length - 1];
     const spotPrice = parseFloat(matchingRow.spot_price) || null;
+    currentReferenceSpotPrice = spotPrice; // Store for selection changes
     
     const currentSymbol = symbolSelector.symbol;
     const currentDate = (matchingRow && matchingRow.date) ? matchingRow.date.split(' ')[0] : '';
@@ -152,7 +154,7 @@ symbolSelector.onChange(async ({ exchange, symbol }) => {
 
 // ── Wiring: Instrument Selection → Local Re-render ───────────────────────────
 instrumentSelector.onChange(selected => {
-    chartRenderer.render(dataService.rawData, selected);
+    chartRenderer.render(dataService.rawData, selected, currentReferenceSpotPrice);
 });
 
 // ── Logic ────────────────────────────────────────────────────────────────────
@@ -202,7 +204,7 @@ function fetchData(silent = false) {
 }
 
 function renderCharts() {
-    chartRenderer.render(dataService.rawData, instrumentSelector.selected());
+    chartRenderer.render(dataService.rawData, instrumentSelector.selected(), currentReferenceSpotPrice);
 }
 
 // ── Controls ─────────────────────────────────────────────────────────────────

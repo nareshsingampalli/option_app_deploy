@@ -23,7 +23,7 @@ class ChartRenderer extends UIComponent {
         if (this.container) this.container.innerHTML = '';
     }
 
-    render(rawData, selectedInstruments) {
+    render(rawData, selectedInstruments, referenceSpotPrice = null) {
         if (!this.container || !rawData || rawData.length === 0) {
             if (this.container) this.container.innerHTML = '<div style="text-align:center; color:#666; padding: 20px;">Waiting for data...</div>';
             return;
@@ -50,21 +50,23 @@ class ChartRenderer extends UIComponent {
         const lastRow = sortedRaw[sortedRaw.length - 1];
         const targetDay = lastRow.date.split(' ')[0];
 
-        // Determine latest spot price and ATM strike for moneyness labels
-        let latestSpotPrice = null;
-        for (let i = sortedRaw.length - 1; i >= 0; i--) {
-            if (sortedRaw[i].spot_price) {
-                latestSpotPrice = sortedRaw[i].spot_price;
-                break;
+        // Determine the reference spot price for ATM/ITM labels
+        let useSpotPrice = referenceSpotPrice;
+        if (useSpotPrice === null) {
+            for (let i = sortedRaw.length - 1; i >= 0; i--) {
+                if (sortedRaw[i].spot_price) {
+                    useSpotPrice = sortedRaw[i].spot_price;
+                    break;
+                }
             }
         }
 
         let atmStrike = null;
-        if (latestSpotPrice !== null) {
+        if (useSpotPrice !== null) {
             const allStrikes = [...new Set(rawData.map(r => parseFloat(r.strike)).filter(s => !isNaN(s)))];
             if (allStrikes.length > 0) {
                 atmStrike = allStrikes.reduce((prev, curr) => 
-                    Math.abs(curr - latestSpotPrice) < Math.abs(prev - latestSpotPrice) ? curr : prev
+                    Math.abs(curr - useSpotPrice) < Math.abs(prev - useSpotPrice) ? curr : prev
                 );
             }
         }
