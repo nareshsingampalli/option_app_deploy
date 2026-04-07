@@ -36,6 +36,28 @@ class IntradayCandleFetcher(BaseCandleFetcher):
         if df is None or df.empty:
             print(f"[IntradayFetcher] {self.interval}-min unavailable, falling back to 1-min")
             df = self._fetch(instrument_key, "minutes", 1)
+        
+        if df is not None and not df.empty:
+            try:
+                # Fetch the last candle of the previous trading day to provide a non-resetting baseline for ROC.
+                from fetchers.historical import HistoricalCandleFetcher
+                hist = HistoricalCandleFetcher()
+                hist.interval = self.interval
+                
+                from core.utils import get_last_trading_day
+                from datetime import datetime, timedelta
+                dt = datetime.strptime(date_str, "%Y-%m-%d")
+                prev_date = get_last_trading_day(dt - timedelta(days=1)).strftime("%Y-%m-%d")
+                
+                prev_df = hist.fetch_single(instrument_key, "minutes", self.interval, prev_date, prev_date)
+                if prev_df is not None and not prev_df.empty:
+                    # Prepend only the very last candle of the previous day
+                    df = pd.concat([prev_df.tail(1), df])
+                    df = df[~df.index.duplicated(keep="last")].sort_index()
+                    print(f"[IntradayFetcher] Anchored {instrument_key} to baseline from {prev_date}")
+            except Exception as e:
+                print(f"[IntradayFetcher] Warning: Baseline anchoring failed for {instrument_key}: {e}")
+
         return df
 
     def get_spot_candles(self, spot_key: str, date_str: str) -> pd.DataFrame | None:
