@@ -12,6 +12,10 @@ const instrumentSelector = new InstrumentSelector('instrument-list');
 const metricSelector = new MetricSelector('metric-list');
 const chartRenderer = new ChartRenderer('charts-area', metricSelector);
 
+// Expose for cross-module access (e.g. DataService date-shift handling)
+window._timeSelector = timeSelector;
+window._symbolSelector = symbolSelector;
+
 // ── State ────────────────────────────────────────────────────────────────────
 let isLiveMode = false;
 let refreshInterval = null;
@@ -76,8 +80,8 @@ dataService.subscribe((records, isInitial) => {
     
     // Force re-render if it's initial, or no instruments, OR the set of strikes has changed
     const existingSymbols = (instrumentSelector._lastInstrumentInfo || []).map(x => x.symbol);
-    const strikesShifted = existingSymbols.length !== incomingSymbols.length || 
-                          !incomingSymbols.every(s => existingSymbols.includes(s));
+    const strikesShifted = existingSymbols.length !== symbols.length || 
+                          !symbols.every(s => existingSymbols.includes(s));
     
     const strikes = currentInstrumentInfo.map(x => parseFloat(x.strike)).filter(s => !isNaN(s));
     

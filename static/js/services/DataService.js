@@ -147,7 +147,13 @@ class DataService {
                         const datePicker = document.getElementById('date-picker');
                         if (datePicker) {
                             datePicker.value = data.date;
-                            // Re-build params with the new date
+                            // Reconfigure time slider for the new (past) date so it shows full market range
+                            if (window._timeSelector) {
+                                const exchange = window._symbolSelector ? window._symbolSelector.exchange : 'NSE';
+                                const interval = parseInt(document.getElementById('interval-select').value) || 15;
+                                window._timeSelector.reconfigure(exchange, interval);
+                            }
+                            // Re-build params with the new date and updated time
                             const newParams = window.buildParams();
                             this.load(newParams, true);
                             return;
@@ -214,6 +220,12 @@ class DataService {
         if (datePicker && meta.date && datePicker.value !== meta.date) {
             console.log(`[DataService] Syncing UI date picker to: ${meta.date}`);
             datePicker.value = meta.date;
+            // Reconfigure time slider for the shifted (past) date — full market range, slider at end
+            if (window._timeSelector) {
+                const exchange = window._symbolSelector ? window._symbolSelector.exchange : 'NSE';
+                const interval = parseInt(document.getElementById('interval-select').value) || 15;
+                window._timeSelector.reconfigure(exchange, interval);
+            }
         }
 
         if (spotEl && meta.spot_price) {

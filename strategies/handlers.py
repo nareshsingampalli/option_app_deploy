@@ -122,16 +122,45 @@ class ExpiredHandler(StrategyHandler):
     def handle(self, ctx, storage):
         if ctx.exchange != "NSE":
             return self._forward(ctx, storage)
-        if ctx.last_expired_dt is None:
-            return self._forward(ctx, storage)
+            
         target_dt = datetime.strptime(ctx.target_date, "%Y-%m-%d")
-        if target_dt <= ctx.last_expired_dt:
+        today_dt  = datetime.strptime(ctx.today_str, "%Y-%m-%d")
+        is_expired = False
+
+        # ── Primary: Upstox expired API ───────────────────────────────────────
+        if ctx.last_expired_dt is not None and target_dt <= ctx.last_expired_dt:
+            is_expired = True
             print(f"[StrategyChain] EXPIRED ({ctx.target_date} <= {ctx.last_expired_dt.date()})")
+
+        # ── Fallback: resolve the series expiry FOR target_date itself ────────
+        # Always runs when not yet confirmed expired (handles Upstox API lag and
+        # all NSE instruments: NIFTY Tue, BANKNIFTY Wed, MIDCPNIFTY Mon, etc.)
+        # Logic: if the expiry of whatever series was active on target_date is
+        # strictly before today, those contracts are now in the expired bucket.
+        if not is_expired and target_dt < today_dt:
+            try:
+                from resolvers.nse_resolver import NSEActiveResolver
+                _, exp_dt, _ = NSEActiveResolver().resolve(
+                    ctx.symbol, 0, ctx.target_date, num_strikes=0
+                )
+                if exp_dt and exp_dt.date() < today_dt.date():
+                    is_expired = True
+                    print(
+                        f"[StrategyChain] EXPIRED (series expiry {exp_dt.date()} "
+                        f"< today {today_dt.date()} — covers Upstox API lag)"
+                    )
+            except Exception as e:
+                print(f"[StrategyChain] Expiry fallback check failed: {e}")
+
+        if is_expired:
+            # By passing target_dt as last_expired_dt, we force the Factory to instantiate ExpiredCandleFetcher
             fetcher = CandleFetcherFactory.create(
-                ctx.target_date, last_expired_dt=ctx.last_expired_dt, interval=ctx.interval
+                ctx.target_date, last_expired_dt=target_dt, interval=ctx.interval
             )
             from strategies.nse import NSEExpiredPipeline
+            from resolvers.nse_resolver import NSEExpiredResolver
             return NSEExpiredPipeline(fetcher, NSEExpiredResolver(), storage, symbol=ctx.symbol)
+            
         return self._forward(ctx, storage)
 
 

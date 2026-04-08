@@ -103,23 +103,36 @@ class NSEExpiredResolver(InstrumentResolver):
         print(f"[NSEExpiredResolver] symbol={symbol}, underlying={underlying}, spot={spot_price}")
 
         expiries = self._fetcher.fetch_expiries(underlying)
-        if not expiries:
-            return [], None, True
-
-        # Find nearest expiry >= reference_date
         ref_dt          = datetime.strptime(reference_date, "%Y-%m-%d")
         target_expiry_s = None
-        for exp in sorted(expiries):
-            if datetime.strptime(str(exp), "%Y-%m-%d").date() >= ref_dt.date():
-                target_expiry_s = str(exp)
-                break
-        if not target_expiry_s:
-            target_expiry_s = str(sorted(expiries)[-1])
-            print(f"[NSEExpiredResolver] No expiry >= {ref_dt.date()}, using latest: {target_expiry_s}")
+
+        if not expiries:
+            print(f"[NSEExpiredResolver] fetch_expiries returned empty. Using fallback to determine expiry date.")
+            try:
+                from resolvers.nse_resolver import NSEActiveResolver
+                _, exp_dt, _ = NSEActiveResolver().resolve(symbol, spot_price, reference_date, num_strikes=0)
+                if exp_dt:
+                    target_expiry_s = exp_dt.strftime("%Y-%m-%d")
+                    print(f"[NSEExpiredResolver] Fallback to ActiveResolver expiry: {target_expiry_s}")
+            except Exception as e:
+                print(f"[NSEExpiredResolver] Fallback error: {e}")
+            
+            if not target_expiry_s:
+                target_expiry_s = reference_date
+                print(f"[NSEExpiredResolver] Fallback to reference_date: {target_expiry_s}")
+        else:
+            for exp in sorted(expiries):
+                if datetime.strptime(str(exp), "%Y-%m-%d").date() >= ref_dt.date():
+                    target_expiry_s = str(exp)
+                    break
+            if not target_expiry_s:
+                target_expiry_s = str(sorted(expiries)[-1])
+                print(f"[NSEExpiredResolver] No expiry >= {ref_dt.date()}, using latest: {target_expiry_s}")
 
         target_expiry_dt = datetime.strptime(target_expiry_s, "%Y-%m-%d")
         contracts        = self._fetcher.fetch_contracts(underlying, target_expiry_s)
         if not contracts:
+            print(f"[NSEExpiredResolver] fetch_contracts returned no data for {target_expiry_s}.")
             return [], target_expiry_dt, True
 
         # Convert SDK objects to DataFrame robustly

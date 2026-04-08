@@ -66,14 +66,24 @@ class ExpiredCandleFetcher(BaseCandleFetcher):
         return None
 
     # ── Unified interface ────────────────────────────────────────────────────
+    def _get_prev_trading_day(self, date_str: str) -> str:
+        """Helper to find the preceding trading session date, skipping weekends & holidays."""
+        from datetime import datetime, timedelta
+        from core.utils import get_last_trading_day
+        dt = datetime.strptime(date_str, "%Y-%m-%d")
+        prev_dt = dt - timedelta(days=1)
+        return get_last_trading_day(prev_dt).strftime("%Y-%m-%d")
+
     def get_candles(self, instrument_key: str, date_str: str, expiry_dt=None) -> pd.DataFrame | None:
-        """Appends expiry suffix to key if missing, then fetches candles."""
+        """Fetch expired candles from prev trading day through target date for OI ROC baseline continuity."""
         key = instrument_key
         if key.count("|") < 2 and expiry_dt is not None:
             key = f"{key}|{expiry_dt.strftime('%d-%m-%Y')}"
-        
+
         interval_str = f"{self.interval}minute"
-        return self.fetch_candle_data(key, interval_str, date_str, date_str)
+        # Fetch from previous trading day to provide OI ROC baseline (same as HistoricalCandleFetcher)
+        from_date = self._get_prev_trading_day(date_str)
+        return self.fetch_candle_data(key, interval_str, date_str, from_date)
 
     def get_spot_candles(self, spot_key: str, date_str: str) -> pd.DataFrame | None:
         """Spot/index data is NOT available via expired API — callers should use HistoricalFetcher."""
