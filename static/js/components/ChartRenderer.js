@@ -306,7 +306,14 @@ class ChartRenderer extends UIComponent {
                 doubleClick: 'reset+autosize' // Double-tap to reset view
             };
 
-            Plotly.newPlot(chartId, traces, layout, config);
+            const existingDiv = document.getElementById(chartId);
+            if (existingDiv && existingDiv.data) {
+                // Preserve user's zoom/pan state on live updates
+                Plotly.react(chartId, traces, layout, config);
+            } else {
+                // First render — full init
+                Plotly.newPlot(chartId, traces, layout, config);
+            }
         });
     }
 }
