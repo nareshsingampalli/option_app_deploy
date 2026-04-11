@@ -66,7 +66,7 @@ MCX_STRIKE_STEP     = 50     # ATM rounding step for MCX
 # Single source of truth for the Upstox API credentials.
 # The dashboard uses /api/refresh-token to reload these from the .env file at runtime.
 UPSTOX_API_URL      = os.getenv("UPSTOX_API_URL", "https://api.upstox.com")
-UPSTOX_ACCESS_TOKEN =  "eyJ0eXAiOiJKV1QiLCJrZXlfaWQiOiJza192MS4wIiwiYWxnIjoiSFMyNTYifQ.eyJzdWIiOiI4Q0FRNzUiLCJqdGkiOiI2OWQ1YmMwMGVmMTNhOTdjYzIxZjRkMGIiLCJpc011bHRpQ2xpZW50IjpmYWxzZSwiaXNQbHVzUGxhbiI6dHJ1ZSwiaWF0IjoxNzc1NjE0OTc2LCJpc3MiOiJ1ZGFwaS1nYXRld2F5LXNlcnZpY2UiLCJleHAiOjE3NzU2ODU2MDB9.ZjEOYJSz6kHM6-08z11RjFRS6j6saPIvYWDBXoB1ORw"
+UPSTOX_ACCESS_TOKEN =  "eyJ0eXAiOiJKV1QiLCJrZXlfaWQiOiJza192MS4wIiwiYWxnIjoiSFMyNTYifQ.eyJzdWIiOiI4Q0FRNzUiLCJqdGkiOiI2OWQ5OWFkNzIwMTk3ZjE2ZDM2ZmM0YmIiLCJpc011bHRpQ2xpZW50IjpmYWxzZSwiaXNQbHVzUGxhbiI6dHJ1ZSwiaWF0IjoxNzc1ODY4NjMxLCJpc3MiOiJ1ZGFwaS1nYXRld2F5LXNlcnZpY2UiLCJleHAiOjE3NzU5NDQ4MDB9.v_IUQHl8M4aJYoWnvZUd5qsiryKeZGiKB8m5PvZNQSM"
 # ── Token Refresh (Manual fallback) ──────────────────────────────────────────
 def reload_access_token():
     """
@@ -117,4 +117,4 @@ def _start_token_listener():
         listener_thread.start()
 
 # Initialize the listener on module load
-_start_token_listener()
+# _start_token_listener()
