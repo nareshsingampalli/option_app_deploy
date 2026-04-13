@@ -174,8 +174,10 @@ class MarketDataPipeline(ABC):
             """
             return NormalizationFactory.get_strategy(strategy).process(series, **kwargs)
 
-        df["roc_oi"]         = process_roc(df["oi"], strategy='soft_clip')
-        df["roc_volume"]     = process_roc(df["volume"], strategy='soft_clip')
+        # NOTE: roc_oi and roc_volume are intentionally computed AFTER session
+        # filtering (below) so that pct_change() starts from today's first candle
+        # and does NOT include the overnight OI jump from yesterday's last candle
+        # (which was prepended only to anchor change_in_oi, not ROC%).
         # Optimal strategy for ROC IV: 'soft_clip' squashes spikes while keeping neg/pos balance
         df["roc_iv"]         = process_roc(df["iv"], strategy='soft_clip', mask_series=df["iv"], mask_threshold=0.05)
         
@@ -183,7 +185,8 @@ class MarketDataPipeline(ABC):
         df["spot_price"]     = df.index.map(spot_map)
         df["spot_price"]     = df["spot_price"].replace(0, pd.NA).ffill().bfill().fillna(0)
 
-        result = df[["ltp", "change_in_ltp", "roc_oi", "roc_volume", "roc_iv", "coi_vol_ratio", "spot_price"]].reset_index()
+        # Include oi & volume so we can compute their ROC after session filtering
+        result = df[["ltp", "change_in_ltp", "oi", "volume", "roc_iv", "coi_vol_ratio", "spot_price"]].reset_index()
 
         # ── Time-window filtering & user requested Warmup (2 candles) ─────────
         # Filter for the specific date first
@@ -201,6 +204,19 @@ class MarketDataPipeline(ABC):
         # User request: "don't skip"
         # Return the full session data including the first available candles.
         result = session_data.copy()
+
+        # ── Compute OI/Volume ROC on today's session data only ───────────────
+        # OI: pct_change() on today's OI — starts fresh from first candle (NaN → 0).
+        result["roc_oi"] = process_roc(result["oi"], strategy='soft_clip')
+
+        # Volume: intraday volume is CUMULATIVE (resets to 0 at market open each day).
+        # pct_change() on cumulative volume is always positive and spikes at the first
+        # candle (base ≈ 0). Instead, convert to per-candle volume via diff() first,
+        # then compute ROC on that — giving a meaningful "change in trading activity" signal.
+        per_candle_vol = result["volume"].diff().fillna(result["volume"])
+        result["roc_volume"] = process_roc(per_candle_vol, strategy='soft_clip')
+
+        result.drop(columns=["oi", "volume"], inplace=True)
 
         # Shift timestamp to candle CLOSE time so chart shows
         # "close price at close time" rather than at the open time.
