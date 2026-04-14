@@ -64,12 +64,16 @@
 
                 <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-top: 10px;">
                     <div>
-                        <div id="spot-price-display" style="font-weight:bold; color:var(--primary-color); font-size:16px;"></div>
+                        <div id="spot-price-display"
+                            style="font-weight:bold; color:var(--primary-color); font-size:16px;"></div>
                         <div id="expiry-date-display" style="font-size:14px; color:#555; margin-top:5px;"></div>
                     </div>
                     <div>
-                        <label for="interval-select" style="font-size: 11px; color: #666; display: block; margin-bottom: 2px;">Interval (min)</label>
-                        <select id="interval-select" style="padding: 4px; font-size: 12px; border: 1px solid #ddd; border-radius: 4px;">
+                        <label for="interval-select"
+                            style="font-size: 11px; color: #666; display: block; margin-bottom: 2px;">Interval
+                            (min)</label>
+                        <select id="interval-select"
+                            style="padding: 4px; font-size: 12px; border: 1px solid #ddd; border-radius: 4px;">
                             <option value="1">1</option>
                             <option value="3">3</option>
                             <option value="5">5</option>
@@ -86,13 +90,32 @@
 
             <!-- Instrument selector -->
             <div>
-                <h2>Instruments</h2>
+                <h2 style="display:flex; justify-content:space-between; align-items:center; border-bottom: none !important; margin-bottom: 0;">
+                    <span style="flex: 1; padding-bottom: 5px;">Instruments</span>
+
+                    <!-- New segments in header segment -->
+                    <div
+                        style="display:flex; align-items:center; gap: 15px; font-size: 11px; font-weight: normal; color: #555;">
+                        <div id="expiry-date-header"
+                            style="background: #eef2f7; padding: 2px 6px; border-radius: 4px; border: 1px solid #d1d9e6;">
+                            Expiry: <span id="header-expiry-val">--</span>
+                        </div>
+
+                        <label class="next-expiry-toggle"
+                            style="display: flex; align-items: center; gap: 4px; cursor: pointer; color: var(--text-muted); white-space: nowrap;">
+                            <span>Next</span>
+                            <input type="checkbox" id="next-expiry-chk" style="margin: 0; cursor: pointer;">
+                        </label>
+                        <!-- </div> -->
+                </h2>
+                <div style="border-bottom: 2px solid #eee; margin-top: 5px; margin-bottom: 10px;"></div>
                 <div class="btn-group" id="selector-toggles">
                     <button id="btn-all" class="btn" onclick="handleSelectorClick('all')">All</button>
                     <button id="btn-ce" class="btn" onclick="handleSelectorClick('ce')">All CE</button>
                     <button id="btn-pe" class="btn" onclick="handleSelectorClick('pe')">All PE</button>
                     <button id="btn-intraday" class="btn" onclick="handleSelectorClick('intraday')">Intraday</button>
-                    <button id="btn-scalping" class="btn active" onclick="handleSelectorClick('scalping')">Scalping</button>
+                    <button id="btn-scalping" class="btn active"
+                        onclick="handleSelectorClick('scalping')">Scalping</button>
                     <button id="btn-none" class="btn" onclick="handleSelectorClick('none')">Clear</button>
                 </div>
                 <div class="scrollable-list" id="instrument-list">

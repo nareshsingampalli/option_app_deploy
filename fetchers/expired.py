@@ -55,12 +55,21 @@ class ExpiredCandleFetcher(BaseCandleFetcher):
             resp = self._api.get_expired_historical_candle_data(
                 instrument_key, interval_str, to_date, from_date
             )
+            self.last_status = 200
+            self.last_error_code = None
             if resp:
                 self._save_mock_response(resp, "expired", instrument_key)
-                return self._process_response(resp)
-            print(f"[ExpiredFetcher] fetch_candle_data error: Invalid response format")
+                return self._process_response(resp, date_str=to_date)
+            print(f"[Expired] fetch_candle_data: Invalid response format")
         except ApiException as e:
-            print(f"[ExpiredFetcher] fetch_candle_data error: {e}")
+            self.last_status = getattr(e, "status", None)
+            try:
+                import json
+                body = json.loads(e.body)
+                self.last_error_code = body.get("errors", [{}])[0].get("errorCode")
+            except:
+                self.last_error_code = None
+            print(f"[ExpiredFetcher] fetch_candle_data error (Status {self.last_status}, Code {self.last_error_code}): {e}")
         except Exception as e:
             print(f"[ExpiredFetcher] fetch_candle_data unexpected error: {e}")
         return None
@@ -81,8 +90,11 @@ class ExpiredCandleFetcher(BaseCandleFetcher):
             key = f"{key}|{expiry_dt.strftime('%d-%m-%Y')}"
 
         interval_str = f"{self.interval}minute"
-        # Fetch from previous trading day to provide OI ROC baseline (same as HistoricalCandleFetcher)
         from_date = self._get_prev_trading_day(date_str)
+        # Log once per pipeline run (deduped by target date)
+        if getattr(self, "_last_logged_date", None) != date_str:
+            self._log_fetch("Expired", key, from_date, date_str, self.interval, "minutes")
+            self._last_logged_date = date_str
         return self.fetch_candle_data(key, interval_str, date_str, from_date)
 
     def get_spot_candles(self, spot_key: str, date_str: str) -> pd.DataFrame | None:

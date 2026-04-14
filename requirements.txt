@@ -3,6 +3,7 @@ flask-socketio
 eventlet
 pandas
 requests
+gunicorn
 python-dotenv
 upstox-python-sdk
 scipy

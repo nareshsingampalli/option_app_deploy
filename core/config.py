@@ -8,11 +8,13 @@ NSE_INDEX_KEYS: dict[str, str] = {
     "NIFTY":     "NSE_INDEX|Nifty 50",
     "BANKNIFTY": "NSE_INDEX|Nifty Bank",
     "FINNIFTY":  "NSE_INDEX|Nifty Fin Service",
+    "MIDCPNIFTY": "NSE_INDEX|Nifty Midcap 100",
 }
 
 # ── BSE index instrument keys (static) ───────────────────────────────────────
 BSE_INDEX_KEYS: dict[str, str] = {
     "SENSEX":    "BSE_INDEX|SENSEX",
+    "BANKEX":    "BSE_INDEX|BANKEX",
 }
 
 # ── MCX commodity underlying keys ───────────────────────────────────────────
@@ -41,7 +43,9 @@ NSE_INSTRUMENT_URL = _get_instrument_url("market-quote/instruments/exchange/NSE.
 MCX_INSTRUMENT_URL = _get_instrument_url("market-quote/instruments/exchange/MCX.json.gz")
 BSE_INSTRUMENT_URL = _get_instrument_url("market-quote/instruments/exchange/BSE.json.gz")
 
-CACHE_DIR = "cache"
+CACHE_DIR    = "cache"
+NSE_DATA_DIR = "nse_data"
+MCX_DATA_DIR = "mcx_data"
 # ── Trading time windows (IST, used for data filtering) ─────────────────────
 NSE_MARKET_START = "09:14"
 NSE_MARKET_END   = "15:30"
@@ -66,7 +70,7 @@ MCX_STRIKE_STEP     = 50     # ATM rounding step for MCX
 # Single source of truth for the Upstox API credentials.
 # The dashboard uses /api/refresh-token to reload these from the .env file at runtime.
 UPSTOX_API_URL      = os.getenv("UPSTOX_API_URL", "https://api.upstox.com")
-UPSTOX_ACCESS_TOKEN =  "eyJ0eXAiOiJKV1QiLCJrZXlfaWQiOiJza192MS4wIiwiYWxnIjoiSFMyNTYifQ.eyJzdWIiOiI4Q0FRNzUiLCJqdGkiOiI2OWQ5OWFkNzIwMTk3ZjE2ZDM2ZmM0YmIiLCJpc011bHRpQ2xpZW50IjpmYWxzZSwiaXNQbHVzUGxhbiI6dHJ1ZSwiaWF0IjoxNzc1ODY4NjMxLCJpc3MiOiJ1ZGFwaS1nYXRld2F5LXNlcnZpY2UiLCJleHAiOjE3NzU5NDQ4MDB9.v_IUQHl8M4aJYoWnvZUd5qsiryKeZGiKB8m5PvZNQSM"
+UPSTOX_ACCESS_TOKEN =  "eyJ0eXAiOiJKV1QiLCJrZXlfaWQiOiJza192MS4wIiwiYWxnIjoiSFMyNTYifQ.eyJzdWIiOiI4Q0FRNzUiLCJqdGkiOiI2OWRlMWUxZDU5ODYwMTEyNjRiMjkyNWEiLCJpc011bHRpQ2xpZW50IjpmYWxzZSwiaXNQbHVzUGxhbiI6dHJ1ZSwiaWF0IjoxNzc2MTY0MzgxLCJpc3MiOiJ1ZGFwaS1nYXRld2F5LXNlcnZpY2UiLCJleHAiOjE3NzYyMDQwMDB9.6izGQu8nIyzFoclmsd7YU3HDL31v8AbWyXvmW8XD9x0"
 # ── Token Refresh (Manual fallback) ──────────────────────────────────────────
 def reload_access_token():
     """

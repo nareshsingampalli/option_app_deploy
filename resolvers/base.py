@@ -37,6 +37,7 @@ class InstrumentResolver(ABC):
         spot_price:     float,
         reference_date: str,
         num_strikes:    int = 3,
+        expiry_offset:  int = 0,
     ) -> tuple[list[Instrument], Optional[datetime], bool]:
         """
         Returns

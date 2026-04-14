@@ -41,12 +41,18 @@ class HistoricalCandleFetcher(BaseCandleFetcher):
 
         try:
             resp = _get()
-            self._save_mock_response(resp, "historical", instrument_key)
             self.last_status = 200
-            return self._process_response(resp)
+            self.last_error_code = None
+            return self._process_response(resp, date_str=to_date)
         except ApiException as e:
             self.last_status = getattr(e, "status", None)
-            print(f"[HistoricalFetcher] ApiException {instrument_key} (Status {self.last_status}): {e}")
+            try:
+                import json
+                body = json.loads(e.body)
+                self.last_error_code = body.get("errors", [{}])[0].get("errorCode")
+            except:
+                self.last_error_code = None
+            print(f"[HistoricalFetcher] ApiException {instrument_key} (Status {self.last_status}, Code {self.last_error_code}): {e}")
             return None
         except Exception as e:
             print(f"[HistoricalFetcher] Error {instrument_key}: {e}")
@@ -98,10 +104,14 @@ class HistoricalCandleFetcher(BaseCandleFetcher):
 
     def get_candles(self, instrument_key: str, date_str: str, expiry_dt=None) -> pd.DataFrame | None:
         self.used_fallback = False
-        # Fetch from the previous trading day to provide a non-resetting baseline for ROC calculations.
         from_date = self._get_prev_trading_day(date_str)
+        # Log once per pipeline run (deduped by target date)
+        if getattr(self, "_last_logged_date", None) != date_str:
+            self._log_fetch("Historical", instrument_key, from_date, date_str, self.interval, "minutes")
+            self._last_logged_date = date_str
         df = self.fetch_single(instrument_key, "minutes", self.interval, date_str, from_date)
         if (df is None or df.empty) and getattr(self, "last_status", None) != 429:
+            print(f"[Historical] Falling back to 1-min for {instrument_key.split('|')[-1]}")
             df = self.fetch_single(instrument_key, "minutes", 1, date_str, from_date)
             if df is not None and not df.empty:
                 self.used_fallback = True

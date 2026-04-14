@@ -23,8 +23,8 @@ from strategies.base import MarketDataPipeline
 class _MCXBasePipeline(MarketDataPipeline):
     """Shared MCX base — resolves spot_key dynamically."""
 
-    def __init__(self, fetcher: BaseCandleFetcher, resolver: InstrumentResolver, storage: StorageHandler, symbol: str = "CRUDEOIL"):
-        super().__init__(fetcher, resolver, storage, MCX_MARKET_START, MCX_MARKET_END, "mcx")
+    def __init__(self, fetcher: BaseCandleFetcher, resolver: InstrumentResolver, storage: StorageHandler, symbol: str = "CRUDEOIL", expiry_offset: int = 0):
+        super().__init__(fetcher, resolver, storage, MCX_MARKET_START, MCX_MARKET_END, "mcx", expiry_offset=expiry_offset)
         self._mcx_resolver = resolver   # MCXInstrumentResolver
         self._spot_key_cache: dict[str, str] = {}
         self.symbol = symbol.upper()
@@ -40,8 +40,8 @@ class _MCXBasePipeline(MarketDataPipeline):
 
 class MCXLivePipeline(_MCXBasePipeline):
     """Live intraday MCX data."""
-    def __init__(self, fetcher: BaseCandleFetcher, resolver: InstrumentResolver, storage: StorageHandler, symbol: str = "CRUDEOIL"):
-        super().__init__(fetcher, resolver, storage, symbol=symbol)
+    def __init__(self, fetcher: BaseCandleFetcher, resolver: InstrumentResolver, storage: StorageHandler, symbol: str = "CRUDEOIL", expiry_offset: int = 0):
+        super().__init__(fetcher, resolver, storage, symbol=symbol, expiry_offset=expiry_offset)
 
     def fetch_spot_price(self, target_date: str, target_time: Optional[str]) -> Optional[float]:
         # We don't know symbol here; pipeline.run() will call resolver first
@@ -76,7 +76,7 @@ class MCXLivePipeline(_MCXBasePipeline):
             spot_p = float(df["close"].iloc[-1])
 
         spot_map   = df["close"].to_dict()
-        instruments, expiry_dt, is_expired = self.resolver.resolve(symbol, spot_p, target_date)
+        instruments, expiry_dt, is_expired = self.resolver.resolve(symbol, spot_p, target_date, expiry_offset=self.expiry_offset)
         if not instruments:
             self._save([], spot_p, target_date, target_time, expiry_dt, is_expired, symbol)
             return
@@ -87,8 +87,8 @@ class MCXLivePipeline(_MCXBasePipeline):
 
 class MCXHistoricalPipeline(_MCXBasePipeline):
     """Historical MCX data."""
-    def __init__(self, fetcher: BaseCandleFetcher, resolver: InstrumentResolver, storage: StorageHandler, symbol: str = "CRUDEOIL"):
-        super().__init__(fetcher, resolver, storage, symbol=symbol)
+    def __init__(self, fetcher: BaseCandleFetcher, resolver: InstrumentResolver, storage: StorageHandler, symbol: str = "CRUDEOIL", expiry_offset: int = 0):
+        super().__init__(fetcher, resolver, storage, symbol=symbol, expiry_offset=expiry_offset)
 
     def fetch_spot_price(self, target_date: str, target_time: Optional[str]) -> Optional[float]:
         return None   # resolved in run() override
@@ -112,7 +112,7 @@ class MCXHistoricalPipeline(_MCXBasePipeline):
         if df_map is not None and not df_map.empty:
             spot_map = df_map["close"].to_dict()
 
-        instruments, expiry_dt, is_expired = self.resolver.resolve(symbol, spot_p, target_date)
+        instruments, expiry_dt, is_expired = self.resolver.resolve(symbol, spot_p, target_date, expiry_offset=self.expiry_offset)
         if not instruments:
             self._save([], spot_p, target_date, target_time, expiry_dt, is_expired, symbol)
             return

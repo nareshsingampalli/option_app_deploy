@@ -13,21 +13,23 @@ from storage.base import SaveContext, StorageBackend, StorageHandler
 
 def _filename_pair(ctx: SaveContext) -> tuple[str, str]:
     """Return (csv_path, meta_path) for the given context, using subdirectories."""
-    # Map prefix to directory name
-    dir_name = "nse_data" if ctx.prefix == "option" else "mcx_data"
+    import core.config
+    # Map prefix to directory name from config
+    dir_name = core.config.NSE_DATA_DIR if ctx.prefix == "option" else core.config.MCX_DATA_DIR
     
     # Ensure directory exists
     if not os.path.exists(dir_name):
         os.makedirs(dir_name)
         
     sym = ctx.symbol.lower()
+    next_s = "_next" if ctx.next_expiry else ""
     if ctx.time_str:
         clean = ctx.time_str.replace(":", "")
-        csv_file  = f"{ctx.prefix}_{sym}_tabular_{ctx.date_str}_{clean}_int{ctx.interval}.csv"
-        meta_file = f"{ctx.prefix}_{sym}_meta_{ctx.date_str}_{clean}_int{ctx.interval}.json"
+        csv_file  = f"{ctx.prefix}_{sym}_tabular_{ctx.date_str}_{clean}{next_s}_int{ctx.interval}.csv"
+        meta_file = f"{ctx.prefix}_{sym}_meta_{ctx.date_str}_{clean}{next_s}_int{ctx.interval}.json"
     else:
-        csv_file  = f"{ctx.prefix}_{sym}_tabular_{ctx.date_str}_int{ctx.interval}.csv"
-        meta_file = f"{ctx.prefix}_{sym}_meta_{ctx.date_str}_int{ctx.interval}.json"
+        csv_file  = f"{ctx.prefix}_{sym}_tabular_{ctx.date_str}{next_s}_int{ctx.interval}.csv"
+        meta_file = f"{ctx.prefix}_{sym}_meta_{ctx.date_str}{next_s}_int{ctx.interval}.json"
         
     return os.path.join(dir_name, csv_file), os.path.join(dir_name, meta_file)
 

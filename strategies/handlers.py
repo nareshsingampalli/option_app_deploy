@@ -47,6 +47,7 @@ class StrategyContext:
     last_expired_dt: Optional[datetime] = field(default=None)
     today_str:       str                = field(default_factory=lambda: datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%Y-%m-%d"))
     interval:        int                = 15
+    expiry_offset:   int                = 0
 
 
 # ── Abstract Handler ──────────────────────────────────────────────────────────
@@ -77,12 +78,12 @@ class LiveHandler(StrategyHandler):
         print(f"[StrategyChain] LIVE -> {ctx.exchange}")
         if ctx.exchange == "MCX":
             from strategies.mcx import MCXLivePipeline
-            return MCXLivePipeline(fetcher, MCXInstrumentResolver(), storage, symbol=ctx.symbol)
+            return MCXLivePipeline(fetcher, MCXInstrumentResolver(), storage, symbol=ctx.symbol, expiry_offset=ctx.expiry_offset)
         if ctx.exchange == "BSE":
             from strategies.bse import BSELivePipeline
-            return BSELivePipeline(fetcher, BSEActiveResolver(), storage, symbol=ctx.symbol)
+            return BSELivePipeline(fetcher, BSEActiveResolver(), storage, symbol=ctx.symbol, expiry_offset=ctx.expiry_offset)
         from strategies.nse import NSELivePipeline
-        return NSELivePipeline(fetcher, NSEActiveResolver(), storage, symbol=ctx.symbol)
+        return NSELivePipeline(fetcher, NSEActiveResolver(), storage, symbol=ctx.symbol, expiry_offset=ctx.expiry_offset)
 
 
 class TodayGuardHandler(StrategyHandler):
@@ -110,9 +111,9 @@ class TodayGuardHandler(StrategyHandler):
                 fetcher = CandleFetcherFactory.create(ctx.target_date, live_mode=True, interval=ctx.interval)
                 if ctx.exchange == "MCX":
                     from strategies.mcx import MCXLivePipeline
-                    return MCXLivePipeline(fetcher, MCXInstrumentResolver(), storage, symbol=ctx.symbol)
+                    return MCXLivePipeline(fetcher, MCXInstrumentResolver(), storage, symbol=ctx.symbol, expiry_offset=ctx.expiry_offset)
                 from strategies.nse import NSELivePipeline
-                return NSELivePipeline(fetcher, NSEActiveResolver(), storage, symbol=ctx.symbol)
+                return NSELivePipeline(fetcher, NSEActiveResolver(), storage, symbol=ctx.symbol, expiry_offset=ctx.expiry_offset)
             
         return self._forward(ctx, storage)
 
@@ -159,7 +160,7 @@ class ExpiredHandler(StrategyHandler):
             )
             from strategies.nse import NSEExpiredPipeline
             from resolvers.nse_resolver import NSEExpiredResolver
-            return NSEExpiredPipeline(fetcher, NSEExpiredResolver(), storage, symbol=ctx.symbol)
+            return NSEExpiredPipeline(fetcher, NSEExpiredResolver(), storage, symbol=ctx.symbol, expiry_offset=ctx.expiry_offset)
             
         return self._forward(ctx, storage)
 
@@ -174,12 +175,12 @@ class HistoricalHandler(StrategyHandler):
         print(f"[StrategyChain] HISTORICAL -> {ctx.exchange}")
         if ctx.exchange == "MCX":
             from strategies.mcx import MCXHistoricalPipeline
-            return MCXHistoricalPipeline(fetcher, MCXInstrumentResolver(), storage, symbol=ctx.symbol)
+            return MCXHistoricalPipeline(fetcher, MCXInstrumentResolver(), storage, symbol=ctx.symbol, expiry_offset=ctx.expiry_offset)
         if ctx.exchange == "BSE":
             from strategies.bse import BSEHistoricalPipeline
-            return BSEHistoricalPipeline(fetcher, BSEActiveResolver(), storage, symbol=ctx.symbol)
+            return BSEHistoricalPipeline(fetcher, BSEActiveResolver(), storage, symbol=ctx.symbol, expiry_offset=ctx.expiry_offset)
         from strategies.nse import NSEHistoricalPipeline
-        return NSEHistoricalPipeline(fetcher, NSEActiveResolver(), storage, symbol=ctx.symbol)
+        return NSEHistoricalPipeline(fetcher, NSEActiveResolver(), storage, symbol=ctx.symbol, expiry_offset=ctx.expiry_offset)
 
 
 class FutureGuardHandler(StrategyHandler):
@@ -234,7 +235,8 @@ def build_pipeline(
     live_mode:   bool,
     symbol:      str,
     storage:     StorageHandler,
-    interval:    int = 15
+    interval:    int = 15,
+    next_expiry: bool = False
 ) -> Optional[MarketDataPipeline]:
     """
     Convenience function — resolves last_expired_dt and returns the correct pipeline.
@@ -251,6 +253,14 @@ def build_pipeline(
         exchange = "BSE"
 
     print(f"[StrategyChain] Resolving pipeline for {symbol} on {target_date} (live={live_mode}, exchange={exchange})...")
+    
+    # ── Safety Check: Live mode is ONLY for today ────────────────────────────
+    from core.utils import ist_now
+    today_str = ist_now().strftime("%Y-%m-%d")
+    if live_mode and target_date != today_str:
+        print(f"[StrategyChain] Correcting live_mode -> False (reason: {target_date} != today)")
+        live_mode = False
+
     last_expired = None
     if exchange == "NSE" and not live_mode:
         print(f"[StrategyChain] Fetching last expired date for NSE...")
@@ -264,6 +274,7 @@ def build_pipeline(
         symbol=symbol,
         last_expired_dt=last_expired,
         interval=interval,
+        expiry_offset=1 if next_expiry else 0
     )
     chain = StrategyChain.build(storage)
     return chain.resolve(ctx, storage)

@@ -46,7 +46,8 @@ body {
     margin: 0 0 10px 0;
     font-size: 18px;
     color: var(--text-main);
-    border-bottom: 2px solid #eee;
+
+
     padding-bottom: 5px;
     display: flex;
     justify-content: space-between;
@@ -382,3 +383,28 @@ input:checked+.slider-toggle:before {
     animation: shimmer 1.5s infinite linear;
     border-radius: 3px;
 }
+
+/* ── Pulsing Error States ── */
+@keyframes error-pulse {
+    0% { background-color: #ff5252; box-shadow: 0 0 0 0 rgba(255, 82, 82, 0.7); }
+    70% { background-color: #ff1744; box-shadow: 0 0 0 10px rgba(255, 82, 82, 0); }
+    100% { background-color: #ff5252; box-shadow: 0 0 0 0 rgba(255, 82, 82, 0); }
+}
+
+.btn-error-pulse {
+    animation: error-pulse 1.5s infinite !important;
+    color: white !important;
+    border: none !important;
+    font-weight: bold !important;
+}
+
+.market-holiday-notice {
+    background: #fff3e0;
+    color: #e65100;
+    padding: 10px;
+    border-radius: 4px;
+    border-left: 4px solid #ff9800;
+    margin-bottom: 10px;
+    font-size: 13px;
+}
+

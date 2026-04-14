@@ -138,7 +138,8 @@ class ChartRenderer extends UIComponent {
                 traces.push({
                     x: xSorted,
                     y: xSorted.map(d => dateToSpot.get(d)),
-                    mode: 'lines',
+                    mode: 'lines+markers',
+                    marker: { size: 3 },
                     name: 'Spot Price',
                     line: { width: 3, color: '#1f77b4' }
                 });
@@ -151,7 +152,8 @@ class ChartRenderer extends UIComponent {
                         return {
                             x: grouped[sym].rows.map(r => r.date),
                             y: grouped[sym].rows.map(r => r[metric]),
-                            mode: 'lines',
+                            mode: 'lines+markers',
+                            marker: { size: 4 },
                             name: symbolLabels[sym] || sym,
                             isCE: isCE, // Store for sorting
                             line: { dash, width: 2, color }

@@ -9,6 +9,8 @@ class DataService {
         this._observers = [];
         this._rawData = [];
         this._currentParams = null; // Track last loaded params
+        this._isLoading = false;    // Guard against re-entrant calls
+        this._lastLoadTime = 0;     // Cooling down to avoid loops
     }
 
     // ── Observer registration ────────────────────────────────────────────────
@@ -18,8 +20,12 @@ class DataService {
         this._observers.push(fn);
     }
 
-    _notify(data, isInitial) {
-        this._observers.forEach(fn => fn(data, isInitial));
+    _notify(data, isInitial, status = "success", errorCode = null) {
+        this._observers.forEach(fn => fn(data, isInitial, status, errorCode));
+    }
+
+    onInstrumentsChanged(fn) {
+        this._onInstrumentsChanged = fn;
     }
 
     // ── Public API ───────────────────────────────────────────────────────────
@@ -48,8 +54,20 @@ class DataService {
     }
 
     async load(params, silent = false) {
-        // Simple check: if params haven't changed and not in live mode, maybe skip?
-        // But usually we want the server to decide freshness.
+        if (this._isLoading) {
+            console.log("[DataService] Load already in progress, skipping...");
+            return;
+        }
+        
+        // Cooldown: skip if triggered within 2 seconds of last fetch (prevent loops)
+        const now = Date.now();
+        if (silent && (now - this._lastLoadTime) < 2000) {
+            console.log("[DataService] Cooling down, skipping background fetch.");
+            return;
+        }
+
+        this._isLoading = true;
+        this._lastLoadTime = now;
 
         const loader = document.getElementById('loading');
         if (!silent && loader) {
@@ -61,6 +79,8 @@ class DataService {
 
         try {
             const data = await this._api.getOptionData(params);
+            const status = data.status || "success";
+            const errorCode = (data.meta && data.meta.error_code) ? data.meta.error_code : null;
 
             if (data.error) {
                 if (!silent) {
@@ -81,6 +101,7 @@ class DataService {
                     }
                 }
                 this._updateMeta(data.meta || {});
+                this._notify([], !silent, status, errorCode);
                 return;
             }
 
@@ -89,7 +110,7 @@ class DataService {
             const meta = data.meta || {};
 
             this._updateMeta(meta);
-            this._notify(records, !silent);
+            this._notify(records, !silent, status, errorCode);
 
         } catch (err) {
             console.error('[DataService] fetch error:', err);
@@ -101,6 +122,7 @@ class DataService {
                 }
             }
         } finally {
+            this._isLoading = false;
             if (loader) {
                 const isWaitingBanner = loader.classList.contains('waiting');
                 const hasDataNow = this._rawData && this._rawData.length > 0;
@@ -139,11 +161,11 @@ class DataService {
                 const activeSym = params ? params.symbol : this._currentSymbol;
 
                 if (data.symbol === activeSym || (data.prefix === prefix && !data.symbol)) {
-                    console.log(`[DataService] WebSocket update for ${activeSym}`);
+                    console.log(`[DataService] WebSocket update for ${activeSym}`, data);
                     
-                    // If the server shifted the date (holiday fallback), update our UI state
+                    // If the server shifted the date (e.g. holiday fallback), sync our UI state
                     if (data.date && params && data.date !== params.date) {
-                        console.log(`[DataService] Server shifted date to ${data.date} (Holiday fallback)`);
+                        console.log(`[DataService] Server provided date ${data.date} (Syncing from ${params.date})`);
                         const datePicker = document.getElementById('date-picker');
                         if (datePicker) {
                             datePicker.value = data.date;
@@ -153,14 +175,26 @@ class DataService {
                                 const interval = parseInt(document.getElementById('interval-select').value) || 15;
                                 window._timeSelector.reconfigure(exchange, interval);
                             }
-                            // Re-build params with the new date and updated time
+                            // Re-fetch with the newly synchronized parameters
                             const newParams = window.buildParams();
                             this.load(newParams, true);
                             return;
                         }
                     }
 
-                    if (params) this.load(params, true);
+                    if (params) {
+                         this.load(params, true);
+                         if (data.status) {
+                             this._notify(this._rawData, false, data.status, data.error_code);
+                         }
+                    }
+                }
+            });
+
+            this.socket.on('instruments_changed', (data) => {
+                console.log("[DataService] Instruments changed event:", data);
+                if (this._onInstrumentsChanged) {
+                    this._onInstrumentsChanged(data.instruments);
                 }
             });
 
@@ -175,26 +209,7 @@ class DataService {
                 }
             });
 
-            // ── Rejoining client: market is closed / weekend / holiday ─────────
-            this.socket.on('market_status', (data) => {
-                console.log(`[DataService] Server market_status: ${data.status} for ${data.symbol}`);
-                const loader = document.getElementById('loading');
 
-                // If we already have data loaded, market_status is just informational — don't interrupt
-                if (this._rawData && this._rawData.length > 0) {
-                    console.log('[DataService] Ignoring market_status — already have data.');
-                    return;
-                }
-
-                const msg = data.message || 'Market is currently closed.';
-                if (loader) {
-                    loader.textContent = msg;
-                    loader.style.display = 'flex';
-                    loader.classList.add('waiting');
-                }
-                // Also show a non-blocking notice if the helper exists
-                if (window.showNotice) window.showNotice(msg);
-            });
 
         } catch (e) {
             console.error("[DataService] WS Init failed", e);
@@ -213,10 +228,11 @@ class DataService {
     _updateMeta(meta) {
         const spotEl = document.getElementById('spot-price-display');
         const expiryEl = document.getElementById('expiry-date-display');
+        const headerExpiryVal = document.getElementById('header-expiry-val');
         const updatedEl = document.getElementById('last-updated');
         const datePicker = document.getElementById('date-picker');
 
-        // Sync Date Picker if the server shifted our date (Holiday/Weekend fallback)
+        // Sync Date Picker if the server shifted or provided a different date (e.g. Holiday/Weekend fallback)
         if (datePicker && meta.date && datePicker.value !== meta.date) {
             console.log(`[DataService] Syncing UI date picker to: ${meta.date}`);
             datePicker.value = meta.date;
@@ -231,8 +247,19 @@ class DataService {
         if (spotEl && meta.spot_price) {
             spotEl.textContent = `Spot Price: ${meta.spot_price}`;
         }
-        if (expiryEl && meta.expiry_date) {
-            expiryEl.textContent = `Expiry: ${meta.expiry_date}`;
+        if (meta.expiry_date) {
+            if (expiryEl) expiryEl.textContent = `Expiry: ${meta.expiry_date}`;
+            
+            // Format for the header segment as requested in image mockup: e.g. (14- Apr)
+            if (headerExpiryVal) {
+                try {
+                    const dt = new Date(meta.expiry_date);
+                    const month = dt.toLocaleString('default', { month: 'short' });
+                    headerExpiryVal.textContent = `${dt.getDate()}- ${month}`;
+                } catch (e) {
+                    headerExpiryVal.textContent = meta.expiry_date;
+                }
+            }
         }
         if (updatedEl && meta.fetched_at) {
             updatedEl.textContent = `Last Updated: ${new Date(meta.fetched_at).toLocaleTimeString()}`;

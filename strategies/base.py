@@ -58,6 +58,7 @@ class MarketDataPipeline(ABC):
         market_start: str = NSE_MARKET_START,
         market_end:   str = NSE_MARKET_END,
         prefix:       str = "option",
+        expiry_offset: int = 0,
     ):
         self.fetcher      = fetcher
         self.resolver     = resolver
@@ -65,7 +66,24 @@ class MarketDataPipeline(ABC):
         self.market_start = datetime.strptime(market_start, "%H:%M").time()
         self.market_end   = datetime.strptime(market_end,   "%H:%M").time()
         self.prefix       = prefix
-        self.symbol       = ""  # Will be set in run() if needed, but run() already takes it
+        self.expiry_offset = expiry_offset
+        self.symbol       = ""  # Will be set in run() if needed
+        self._inst_observers = []
+        
+        # Self-subscribe the fetcher's warmup if available
+        self.subscribe_instruments(self.fetcher.warmup_cache)
+
+    def subscribe_instruments(self, callback):
+        """Register a subscriber (Observer) for instrument list changes."""
+        self._inst_observers.append(callback)
+
+    def _notify_instruments(self, instruments, target_date):
+        """Notify all observers (subscribers) that the instrument list has been updated."""
+        for observer in self._inst_observers:
+            try:
+                observer(instruments, target_date)
+            except Exception as e:
+                print(f"[Pipeline] Observer error: {e}")
 
     # ── Template method (orchestrator) ───────────────────────────────────────
     def run(self, symbol: str, target_date: str, target_time: Optional[str] = None):
@@ -80,14 +98,17 @@ class MarketDataPipeline(ABC):
 
         # Step 2 — Resolve instruments
         instruments, expiry_dt, is_expired = self.resolver.resolve(
-            symbol, spot_price, target_date
+            symbol, spot_price, target_date, expiry_offset=self.expiry_offset
         )
         if not instruments:
             print("[Pipeline] No instruments found.")
             self._save([], spot_price, target_date, target_time, expiry_dt, is_expired, symbol)
             return
 
-        # Step 3 — Build spot map for IV
+        # Step 3 — Notify subscribers (e.g. parallel fetch baselines for Intraday)
+        self._notify_instruments(instruments, target_date)
+
+        # Step 4 — Build spot map for IV
         spot_map = self.build_spot_map(target_date)
 
         # Step 4 — Process each instrument
@@ -174,19 +195,20 @@ class MarketDataPipeline(ABC):
             """
             return NormalizationFactory.get_strategy(strategy).process(series, **kwargs)
 
-        # NOTE: roc_oi and roc_volume are intentionally computed AFTER session
-        # filtering (below) so that pct_change() starts from today's first candle
-        # and does NOT include the overnight OI jump from yesterday's last candle
-        # (which was prepended only to anchor change_in_oi, not ROC%).
         # Optimal strategy for ROC IV: 'soft_clip' squashes spikes while keeping neg/pos balance
         df["roc_iv"]         = process_roc(df["iv"], strategy='soft_clip', mask_series=df["iv"], mask_threshold=0.05)
+        
+        # Compute OI/Volume ROC on full data (including baseline)
+        # Percentage changes now pick up the jump from yesterday's baseline if available.
+        df["roc_oi"]         = process_roc(df["oi"], strategy='soft_clip')
+        df["roc_volume"]     = process_roc(df["volume"], strategy='soft_clip')
         
         df["coi_vol_ratio"]  = (df["change_in_oi"] / df["volume"]).replace([np.inf, -np.inf], 0).fillna(0).round(4)
         df["spot_price"]     = df.index.map(spot_map)
         df["spot_price"]     = df["spot_price"].replace(0, pd.NA).ffill().bfill().fillna(0)
 
-        # Include oi & volume so we can compute their ROC after session filtering
-        result = df[["ltp", "change_in_ltp", "oi", "volume", "roc_iv", "coi_vol_ratio", "spot_price"]].reset_index()
+        # Include necessary metrics for dashboard
+        result = df[["ltp", "change_in_ltp", "oi", "volume", "roc_iv", "roc_oi", "roc_volume", "coi_vol_ratio", "spot_price"]].reset_index()
 
         # ── Time-window filtering & user requested Warmup (2 candles) ─────────
         # Filter for the specific date first
@@ -205,16 +227,10 @@ class MarketDataPipeline(ABC):
         # Return the full session data including the first available candles.
         result = session_data.copy()
 
-        # ── Compute OI/Volume ROC on today's session data only ───────────────
-        # OI: pct_change() on today's OI — starts fresh from first candle (NaN → 0).
-        result["roc_oi"] = process_roc(result["oi"], strategy='soft_clip')
-
-        # Volume: intraday volume is CUMULATIVE (resets to 0 at market open each day).
-        # pct_change() on cumulative volume is always positive and spikes at the first
-        # candle (base ≈ 0). Instead, convert to per-candle volume via diff() first,
-        # then compute ROC on that — giving a meaningful "change in trading activity" signal.
-        per_candle_vol = result["volume"].diff().fillna(result["volume"])
-        result["roc_volume"] = process_roc(per_candle_vol, strategy='soft_clip')
+        # Fill NaNs from ROC calculations
+        for col in ["roc_oi", "roc_volume", "roc_iv"]:
+             if col in result.columns:
+                  result[col] = result[col].fillna(0).round(4)
 
         result.drop(columns=["oi", "volume"], inplace=True)
 
@@ -237,5 +253,6 @@ class MarketDataPipeline(ABC):
             symbol=symbol,
             interval=self.fetcher.interval,
             is_fallback=is_fallback,
+            next_expiry=self.expiry_offset > 0,
         )
         self.storage.handle(ctx)

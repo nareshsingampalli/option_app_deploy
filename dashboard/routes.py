@@ -120,6 +120,7 @@ def get_option_data():
     time_str  = request.args.get("time", "")  # HH:MM
     interval  = int(request.args.get("interval", CANDLE_INTERVAL_MINUTES))
     live_mode = request.args.get("live", "false").lower() == "true"
+    next_expiry = request.args.get("next_expiry", "false").lower() == "true"
 
     is_today    = date_str == ist_now().strftime("%Y-%m-%d")
     prefix      = "mcx" if exchange == "MCX" else "option"
@@ -142,6 +143,8 @@ def get_option_data():
         return jsonify({"error": "Invalid date format. Use YYYY-MM-DD"}), 400
 
     suffix       = f"_{time_str.replace(':', '')}" if time_str else ""
+    if next_expiry:
+        suffix += "_next"
     suffix       += f"_int{interval}"
     sym          = symbol.lower()
     dir_name     = "nse_data" if prefix == "option" else "mcx_data"
@@ -237,15 +240,41 @@ def get_option_data():
                     from datetime import datetime, timedelta
                     curr_date = date_str
                     retries = 0
+                    fetch_status = "success"
+                    last_err_code = None
+
                     while retries < 5:
                         c_path = os.path.join(os.getcwd(), dir_name, f"{prefix}_{sym}_tabular_{curr_date}{suffix}.csv")
                         if not os.path.exists(c_path) or (time.time() - os.path.getmtime(c_path) > 60):
                             from storage.db_storage import build_storage_chain
                             from strategies.handlers import build_pipeline
                             storage = build_storage_chain()
-                            pipeline = build_pipeline(exchange, curr_date, live_mode, symbol, storage, interval=interval)
+                            pipeline = build_pipeline(exchange, curr_date, live_mode, symbol, storage, interval=interval, next_expiry=next_expiry)
                             if pipeline:
+                                # Subscribe UI notification (Observer Pattern)
+                                def on_instruments_resolved(instruments, d):
+                                    # Create a serializable format for the UI
+                                    ui_data = []
+                                    for inst in instruments:
+                                         base_sym = inst.symbol.split(' ')[0]
+                                         ui_data.append({
+                                             "symbol": inst.symbol,
+                                             "strike": inst.strike,
+                                             "type": inst.option_type,
+                                             "label": f"{base_sym} {inst.strike} {inst.option_type}"
+                                         })
+                                    socketio.emit("instruments_changed", {"symbol": symbol, "instruments": ui_data}, room=symbol)
+                                pipeline.subscribe_instruments(on_instruments_resolved)
+
                                 pipeline.run(symbol, curr_date, time_str)
+                                fetcher = getattr(pipeline, "fetcher", None)
+                                if fetcher:
+                                    last_err_code = getattr(fetcher, "last_error_code", None)
+                                    if last_err_code == "UDAPI100050" or getattr(fetcher, "last_status", None) == 401:
+                                        fetch_status = "auth_error"
+                                    elif getattr(fetcher, "last_status", None) == 200 and not os.path.exists(c_path):
+                                        fetch_status = "holiday"
+
                                 if getattr(pipeline.fetcher, "last_status", None) == 404 or not os.path.exists(c_path) or os.path.getsize(c_path) == 0:
                                     from core.utils import get_last_trading_day
                                     dt = datetime.strptime(curr_date, "%Y-%m-%d") - timedelta(days=1)
@@ -253,7 +282,23 @@ def get_option_data():
                                     curr_date = dt.strftime("%Y-%m-%d")
                                     retries += 1
                                     continue
-                                socketio.emit("data_updated", {"prefix": exchange, "symbol": symbol, "date": curr_date, "timestamp": datetime.now().isoformat()}, room=symbol)
+                                
+                                # Save status in metadata
+                                m_path = c_path.replace("tabular", "meta").replace(".csv", ".json")
+                                if os.path.exists(m_path):
+                                    with open(m_path, "r") as f: m_data = json.load(f)
+                                    m_data["fetch_status"] = fetch_status
+                                    m_data["error_code"] = last_err_code
+                                    with open(m_path, "w") as f: json.dump(m_data, f)
+
+                                socketio.emit("data_updated", {
+                                    "prefix": exchange, 
+                                    "symbol": symbol, 
+                                    "date": curr_date, 
+                                    "status": fetch_status,
+                                    "error_code": last_err_code,
+                                    "timestamp": datetime.now().isoformat()
+                                }, room=symbol)
                                 break
                             else: break
                         else:
@@ -262,6 +307,7 @@ def get_option_data():
                     if retries >= 5:
                         socketio.emit("market_status", {"symbol": symbol, "exchange": exchange, "status": "unavailable", "message": "Upstox data currently unavailable."}, room=symbol)
                 except Exception as e: print(f"[API-BG] Error: {e}")
+
                 finally:
                     try: lock.release()
                     except: pass
@@ -299,7 +345,7 @@ def get_option_data():
             elif isinstance(d, list): return [clean_meta_val(i) for i in d]
             elif isinstance(d, float) and (np.isnan(d) or np.isinf(d)): return None
             return d
-        return jsonify({"data": records, "meta": clean_meta_val(meta)})
+        return jsonify({"status": meta.get("fetch_status", "success"), "data": records, "meta": clean_meta_val(meta)})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

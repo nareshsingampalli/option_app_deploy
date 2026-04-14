@@ -41,6 +41,7 @@ class MCXInstrumentResolver(InstrumentResolver):
         spot_price:     float,
         reference_date: str,
         num_strikes:    int = DEFAULT_NUM_STRIKES,
+        expiry_offset:  int = 0,
     ) -> tuple[list[Instrument], Optional[datetime], bool]:
         commodity = symbol.upper()
         print(f"[MCXResolver] commodity={commodity}, spot={spot_price}, date={reference_date}")
@@ -78,16 +79,18 @@ class MCXInstrumentResolver(InstrumentResolver):
         return get_instrument_df(MCX_INSTRUMENT_URL, "MCX")
 
     def _resolve_spot_key(
-        self, commodity: str, df_all: pd.DataFrame, reference_date: str
+        self, commodity: str, df_all: pd.DataFrame, reference_date: str, expiry_offset: int = 0
     ) -> tuple[str, pd.Timestamp]:
         """
         Find nearest-expiry FUT instrument for the commodity.
         Extracts date from trading_symbol (e.g. 26 MAR 26) instead of using expiry col.
         Rolls to next month if reference_date >= (symbol_date - 1 day).
+        expiry_offset: 0 = current effective, 1 = next valid, etc.
         """
         ref_dt = pd.Timestamp(reference_date).normalize()
         # Start search from the month of the reference date
         search_dt = ref_dt
+        found_count = 0
         
         while True:
             month_str = search_dt.strftime("%b").upper()
@@ -105,7 +108,7 @@ class MCXInstrumentResolver(InstrumentResolver):
                     raise InstrumentResolutionError(f"No FUT found for {commodity} in the next 12 months.")
                 continue
             
-            # Found the future for this month. Pick the first one string-wise if multiple.
+            # Found the future for this month.
             match = matches.iloc[0]
             sym = match["trading_symbol"]
             
@@ -117,12 +120,16 @@ class MCXInstrumentResolver(InstrumentResolver):
             expiry_from_sym = pd.to_datetime(f"{day_str} {month_str} {year_str}", format="%d %b %y").normalize()
             
             # ROLL RULE: All MCX instruments expire on exp - 1
-            # If today is exp-1 or later, we roll to next month.
             roll_cutoff = expiry_from_sym - pd.Timedelta(days=1)
             
             if ref_dt < roll_cutoff:
-                # We haven't hit the rollover yet.
-                return match["instrument_key"], expiry_from_sym
+                # This month's future is still valid.
+                if found_count == expiry_offset:
+                    return match["instrument_key"], expiry_from_sym
+                else:
+                    found_count += 1
+                    # Jump to next month for the next count
+                    search_dt = (search_dt.replace(day=1) + pd.DateOffset(months=1))
             else:
                 # It is the day before (or after) the string expiry. Roll to next month.
                 search_dt = (search_dt.replace(day=1) + pd.DateOffset(months=1))

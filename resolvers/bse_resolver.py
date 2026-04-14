@@ -23,8 +23,9 @@ class BSEActiveResolver(InstrumentResolver):
         spot_price:     float,
         reference_date: str,
         num_strikes:    int = 3,
+        expiry_offset:  int = 0,
     ) -> tuple[list[Instrument], Optional[datetime], bool]:
-        print(f"[BSEActiveResolver] Fetching instruments for {symbol} @ spot={spot_price}")
+        print(f"[BSEActiveResolver] Fetching instruments for {symbol} @ spot={spot_price} (offset={expiry_offset})")
         from core.utils import get_instrument_df
         
         # BSE instrument list usually comes as JSON.gz
@@ -55,9 +56,13 @@ class BSEActiveResolver(InstrumentResolver):
             
         ref_dt = pd.to_datetime(reference_date)
 
-        # Nearest expiry >= reference_date
+        # Candidates >= reference_date
         expiries = sorted(opts["expiry"].unique())
-        target_expiry = next((e for e in expiries if e >= ref_dt), None)
+        candidates = [e for e in expiries if e >= ref_dt]
+        if len(candidates) <= expiry_offset:
+            return [], None, True # Not enough future expiries
+            
+        target_expiry = candidates[expiry_offset]
         
         if target_expiry is None:
             return [], None, True # all expiries are past

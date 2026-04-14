@@ -126,56 +126,25 @@ def ist_now():
     from datetime import datetime
     return datetime.now(pytz.timezone('Asia/Kolkata'))
 
-# ── Holiday Handling (NSE/MCX 2026) ──────────────────────────────────────────
-TRADING_HOLIDAYS_2026 = {
-    "2026-01-26", # Republic Day
-    "2026-02-17", # Maha Shivaratri
-    "2026-03-03", # Holi
-    "2026-04-03", # Good Friday
-    "2026-04-14", # Ambedkar Jayanti
-    "2026-05-01", # Maharashtra Day
-    "2026-10-02", # Gandhi Jayanti
-    "2026-10-21", # Dussehra
-    "2026-11-03", # Diwali
-    "2026-11-20", # Guru Nanak Jayanti
-    "2026-12-25", # Christmas
-}
+# ── Holiday Handling ─────────────────────────────────────────────────────────
+# Holidays are NOT hardcoded. They are discovered at runtime by probing 
+# the Upstox API — empty response = holiday = auto roll-over to previous day.
+# ── Trading Day Arithmetic ───────────────────────────────────────────────────
+# No assumptions are made about holidays or weekends. The system attempts 
+# to fetch data for any requested date. If the response is empty, the 
+# high-level retry logic (in routes.py) handles the step-back.
 
 def get_last_trading_day(dt=None):
-    """
-    Returns the most recent trading day (at or before dt), skipping weekends and known holidays.
-    """
+    """Returns the calendar day immediately preceding dt."""
     from datetime import timedelta
     if dt is None:
         dt = ist_now()
-    
-    curr = dt
-    while True:
-        # 0=Monday, 5=Saturday, 6=Sunday
-        wd = curr.weekday()
-        ds = curr.strftime("%Y-%m-%d")
-        
-        if wd >= 5 or ds in TRADING_HOLIDAYS_2026:
-            curr -= timedelta(days=1)
-        else:
-            break
-    return curr
+    return dt - timedelta(days=1)
 
 def get_next_trading_day(dt=None):
-    """
-    Returns the next upcoming trading day (strictly after dt), skipping weekends and known holidays.
-    """
+    """Returns the calendar day immediately following dt."""
     from datetime import timedelta
     if dt is None:
         dt = ist_now()
-    
-    curr = dt + timedelta(days=1)
-    while True:
-        wd = curr.weekday()
-        ds = curr.strftime("%Y-%m-%d")
-        
-        if wd >= 5 or ds in TRADING_HOLIDAYS_2026:
-            curr += timedelta(days=1)
-        else:
-            break
-    return curr.replace(hour=9, minute=0, second=0, microsecond=0)
+    return (dt + timedelta(days=1)).replace(hour=9, minute=0, second=0, microsecond=0)
+

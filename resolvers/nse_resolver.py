@@ -33,8 +33,9 @@ class NSEActiveResolver(InstrumentResolver):
         spot_price:     float,
         reference_date: str,
         num_strikes:    int = 3,
+        expiry_offset:  int = 0,
     ) -> tuple[list[Instrument], Optional[datetime], bool]:
-        print(f"[NSEActiveResolver] Fetching instruments for {symbol} @ spot={spot_price}")
+        print(f"[NSEActiveResolver] Fetching instruments for {symbol} @ spot={spot_price} (offset={expiry_offset})")
         from core.utils import get_instrument_df
         df = get_instrument_df(NSE_INSTRUMENT_URL, "NSE")
 
@@ -51,13 +52,13 @@ class NSEActiveResolver(InstrumentResolver):
         opts["expiry"] = pd.to_datetime(opts["expiry"])
         ref_dt = pd.to_datetime(reference_date)
 
-        # Nearest expiry >= reference_date
-        target_expiry = next(
-            (e for e in sorted(opts["expiry"].unique()) if e >= ref_dt),
-            None,
-        )
-        if target_expiry is None:
-            return [], None, True   # all expiries are past
+        # Candidates >= reference_date
+        expiries = sorted(opts["expiry"].unique())
+        candidates = [e for e in expiries if e >= ref_dt]
+        if len(candidates) <= expiry_offset:
+            return [], None, True   # Not enough expiries in the future
+        
+        target_expiry = candidates[expiry_offset]
 
         expiry_df = opts[opts["expiry"] == target_expiry].copy()
         strikes   = sorted(expiry_df["strike_price"].unique())
@@ -98,9 +99,10 @@ class NSEExpiredResolver(InstrumentResolver):
         spot_price:     float,
         reference_date: str,
         num_strikes:    int = 3,
+        expiry_offset:  int = 0,
     ) -> tuple[list[Instrument], Optional[datetime], bool]:
         underlying = NSE_INDEX_KEYS.get(symbol.upper(), NSE_INDEX_KEYS["NIFTY"])
-        print(f"[NSEExpiredResolver] symbol={symbol}, underlying={underlying}, spot={spot_price}")
+        print(f"[NSEExpiredResolver] symbol={symbol}, underlying={underlying}, spot={spot_price} (offset={expiry_offset})")
 
         expiries = self._fetcher.fetch_expiries(underlying)
         ref_dt          = datetime.strptime(reference_date, "%Y-%m-%d")
@@ -110,7 +112,7 @@ class NSEExpiredResolver(InstrumentResolver):
             print(f"[NSEExpiredResolver] fetch_expiries returned empty. Using fallback to determine expiry date.")
             try:
                 from resolvers.nse_resolver import NSEActiveResolver
-                _, exp_dt, _ = NSEActiveResolver().resolve(symbol, spot_price, reference_date, num_strikes=0)
+                _, exp_dt, _ = NSEActiveResolver().resolve(symbol, spot_price, reference_date, num_strikes=0, expiry_offset=expiry_offset)
                 if exp_dt:
                     target_expiry_s = exp_dt.strftime("%Y-%m-%d")
                     print(f"[NSEExpiredResolver] Fallback to ActiveResolver expiry: {target_expiry_s}")
@@ -121,13 +123,16 @@ class NSEExpiredResolver(InstrumentResolver):
                 target_expiry_s = reference_date
                 print(f"[NSEExpiredResolver] Fallback to reference_date: {target_expiry_s}")
         else:
-            for exp in sorted(expiries):
-                if datetime.strptime(str(exp), "%Y-%m-%d").date() >= ref_dt.date():
-                    target_expiry_s = str(exp)
-                    break
-            if not target_expiry_s:
-                target_expiry_s = str(sorted(expiries)[-1])
-                print(f"[NSEExpiredResolver] No expiry >= {ref_dt.date()}, using latest: {target_expiry_s}")
+            candidates = [str(exp) for exp in sorted(expiries) if datetime.strptime(str(exp), "%Y-%m-%d").date() >= ref_dt.date()]
+            if len(candidates) > expiry_offset:
+                target_expiry_s = candidates[expiry_offset]
+            else:
+                # No next candidate in expired list — the "next" expiry is still active.
+                # Delegate to NSEActiveResolver to get current active instruments (e.g. April 21).
+                # is_fresh=True signals the pipeline to use HistoricalCandleFetcher for these instruments.
+                print(f"[NSEExpiredResolver] No next expired candidate at offset={expiry_offset}. Delegating to ActiveResolver.")
+                from resolvers.nse_resolver import NSEActiveResolver
+                return NSEActiveResolver().resolve(symbol, spot_price, reference_date, num_strikes, expiry_offset=0)
 
         target_expiry_dt = datetime.strptime(target_expiry_s, "%Y-%m-%d")
         contracts        = self._fetcher.fetch_contracts(underlying, target_expiry_s)

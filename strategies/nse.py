@@ -22,8 +22,8 @@ from strategies.base import MarketDataPipeline
 class NSELivePipeline(MarketDataPipeline):
     """Live intraday NSE data."""
 
-    def __init__(self, fetcher: BaseCandleFetcher, resolver: InstrumentResolver, storage: StorageHandler, symbol: str = "NIFTY"):
-        super().__init__(fetcher, resolver, storage, NSE_MARKET_START, NSE_MARKET_END, "option")
+    def __init__(self, fetcher: BaseCandleFetcher, resolver: InstrumentResolver, storage: StorageHandler, symbol: str = "NIFTY", expiry_offset: int = 0):
+        super().__init__(fetcher, resolver, storage, NSE_MARKET_START, NSE_MARKET_END, "option", expiry_offset=expiry_offset)
         self._spot_key = NSE_INDEX_KEYS.get(symbol.upper(), NSE_INDEX_KEYS["NIFTY"])
 
     def fetch_spot_price(self, target_date: str, target_time: Optional[str]) -> Optional[float]:
@@ -49,8 +49,8 @@ class NSELivePipeline(MarketDataPipeline):
 class NSEHistoricalPipeline(MarketDataPipeline):
     """Historical NSE data (active contracts)."""
 
-    def __init__(self, fetcher: BaseCandleFetcher, resolver: InstrumentResolver, storage: StorageHandler, symbol: str = "NIFTY"):
-        super().__init__(fetcher, resolver, storage, NSE_MARKET_START, NSE_MARKET_END, "option")
+    def __init__(self, fetcher: BaseCandleFetcher, resolver: InstrumentResolver, storage: StorageHandler, symbol: str = "NIFTY", expiry_offset: int = 0):
+        super().__init__(fetcher, resolver, storage, NSE_MARKET_START, NSE_MARKET_END, "option", expiry_offset=expiry_offset)
         self._spot_key = NSE_INDEX_KEYS.get(symbol.upper(), NSE_INDEX_KEYS["NIFTY"])
         # We know the factory always returns a HistoricalCandleFetcher for this pipeline
         assert isinstance(fetcher, HistoricalCandleFetcher), \
@@ -72,8 +72,8 @@ class NSEExpiredPipeline(MarketDataPipeline):
     HistoricalCandleFetcher for spot index (not available via expired API).
     """
 
-    def __init__(self, fetcher: BaseCandleFetcher, resolver: InstrumentResolver, storage: StorageHandler, symbol: str = "NIFTY"):
-        super().__init__(fetcher, resolver, storage, NSE_MARKET_START, NSE_MARKET_END, "option")
+    def __init__(self, fetcher: BaseCandleFetcher, resolver: InstrumentResolver, storage: StorageHandler, symbol: str = "NIFTY", expiry_offset: int = 0):
+        super().__init__(fetcher, resolver, storage, NSE_MARKET_START, NSE_MARKET_END, "option", expiry_offset=expiry_offset)
         self._spot_key   = NSE_INDEX_KEYS.get(symbol.upper(), NSE_INDEX_KEYS["NIFTY"])
         self._hist_fetch = HistoricalCandleFetcher()   # always needed for spot
 
@@ -83,3 +83,41 @@ class NSEExpiredPipeline(MarketDataPipeline):
     def build_spot_map(self, target_date: str) -> dict:
         df = self._hist_fetch.get_spot_candles(self._spot_key, target_date)
         return df["close"].to_dict() if df is not None and not df.empty else {}
+
+    def _process_all(self, instruments: list[Instrument], spot_map: dict, filter_date: str) -> tuple[list[dict], bool]:
+        """
+        Choose the right fetcher for each instrument.
+        If resolver returned active instruments (e.g. April 21), use HistoricalCandleFetcher.
+        Otherwise use our default ExpiredCandleFetcher.
+        """
+        rows: list[dict] = []
+        any_fallback = False
+
+        for inst in instruments:
+            # If the instrument key contains the expiry but not in the triple-pipe format, 
+            # or if we detect it's an active instrument (resolved by delegation).
+            # Active NSE keys look like 'NSE_FO|NIFTY264213850CE'. 
+            # Expired keys look like 'NSE_FO|12345|13-04-2026'.
+            fetcher_to_use = self.fetcher
+            if inst.key.count("|") < 2:
+                 # Active instrument
+                 fetcher_to_use = self._hist_fetch
+            
+            print(f"[Pipeline] Processing {inst.symbol} using {type(fetcher_to_use).__name__}...")
+            try:
+                df = fetcher_to_use.get_candles(inst.key, filter_date, expiry_dt=inst.expiry)
+                if df is None or df.empty:
+                    continue
+                if getattr(fetcher_to_use, "used_fallback", False):
+                    any_fallback = True
+                processed = self._process_instrument(df, spot_map, inst, filter_date)
+                for row in processed:
+                    row["symbol"]      = inst.symbol
+                    row["strike"]      = inst.strike
+                    row["option_type"] = inst.option_type
+                    row["expiry_text"] = inst.expiry_str
+                    rows.append(row)
+            except Exception as e:
+                print(f"[Pipeline] Error on {inst.symbol}: {e}")
+
+        return rows, any_fallback

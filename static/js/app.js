@@ -11,6 +11,13 @@ const timeSelector = new TimeSelector('time-slider', 'time-display');
 const instrumentSelector = new InstrumentSelector('instrument-list');
 const metricSelector = new MetricSelector('metric-list');
 const chartRenderer = new ChartRenderer('charts-area', metricSelector);
+const nextExpiryChk = document.getElementById('next-expiry-chk');
+
+// ── Real-time Instrument List Observer (Subscriber Pattern) ──────────────────
+dataService.onInstrumentsChanged((instruments) => {
+    console.log("[App] Updating strike selector from resolved list...");
+    instrumentSelector.render(instruments, currentReferenceSpotPrice);
+});
 
 // Expose for cross-module access (e.g. DataService date-shift handling)
 window._timeSelector = timeSelector;
@@ -42,8 +49,31 @@ function showNotice(message, duration = 5000) {
 }
 
 // ── Wiring: Data → UI ────────────────────────────────────────────────────────
-dataService.subscribe((records, isInitial) => {
-    console.log(`[App] Data received. Records: ${records ? records.length : 0}, Initial: ${isInitial}`);
+dataService.subscribe((records, isInitial, status, errorCode) => {
+    console.log(`[App] Data event. Records: ${records ? records.length : 0}, Status: ${status}, Error: ${errorCode}`);
+    
+    // 1. Handle Auth Error (UDAPI100050)
+    const refreshBtn = document.querySelector('button[onclick="refreshToken()"]');
+    if (status === "auth_error") {
+        if (refreshBtn) refreshBtn.classList.add('btn-error-pulse');
+        showNotice("Invalid API Token. Please click 'Refresh Token' to re-authenticate.");
+    } else if (refreshBtn) {
+        refreshBtn.classList.remove('btn-error-pulse');
+    }
+
+    // 2. Handle Holiday Fallback — auto-turn off Live mode if fallback occured or server reports holiday
+    if (status === "holiday") {
+        if (isLiveMode) {
+            console.log("[App] Holiday detected — disabling Live Mode.");
+            showNotice("Market is closed today (Holiday). Live mode disabled. Showing previous trading session.", 8000);
+            isLiveMode = false;
+            const liveToggle = document.getElementById('live-toggle');
+            if (liveToggle) liveToggle.checked = false;
+            const datePicker = document.getElementById('date-picker');
+            if (datePicker) datePicker.disabled = false;
+        }
+    }
+
     if (!records || records.length === 0) {
         console.warn("[App] No records received.");
         return;
@@ -85,20 +115,26 @@ dataService.subscribe((records, isInitial) => {
     
     const strikes = currentInstrumentInfo.map(x => parseFloat(x.strike)).filter(s => !isNaN(s));
     
-    // Proactive refresh: If spot is within the outer 15% of our strike range, or completely outside
-    let isSpotOutsideRange = false;
+    // ── Aggressive Refresh: If the ATM strike shifts, re-center the whole list ─
+    let isAtmShifted = false;
     if (strikes.length > 0 && spotPrice) {
-        const minS = Math.min(...strikes);
-        const maxS = Math.max(...strikes);
-        const range = maxS - minS;
-        const buffer = range * 0.15; // 15% margin
-        isSpotOutsideRange = (spotPrice < (minS + buffer)) || (spotPrice > (maxS - buffer));
+        // Find the strike in our current list that is closest to the spot
+        const currentAtm = strikes.reduce((prev, curr) => 
+            Math.abs(curr - spotPrice) < Math.abs(prev - spotPrice) ? curr : prev
+        );
+        // Find the strike that is currently at the center of our list
+        const centerIdx = Math.floor(strikes.length / 2);
+        const centerStrike = strikes[centerIdx];
+        
+        // If the price has moved so much that a different strike is now the center-point
+        // of our resolution, we trigger a re-fetch to get new OTM/ITMs around it.
+        isAtmShifted = (currentAtm !== centerStrike);
     }
 
     const needsRefresh = isInitial || !hasInstruments || 
                          currentRenderedSymbol !== currentSymbol || 
                          currentRenderedDate !== currentDate ||
-                         strikesShifted || isSpotOutsideRange;
+                         strikesShifted || isAtmShifted;
 
     if (needsRefresh) {
         try {
@@ -148,21 +184,8 @@ symbolSelector.onChange(async ({ exchange, symbol }) => {
     dataService.clear(); 
     
     // ── Handle Auto-Live Toggle on Exchange Switch ───────────────────────
-    const status = await fetchMarketStatus(exchange);
-    if (!status.is_open && isLiveMode) {
-        console.log(`[App] ${exchange} is closed. Switching off Live Mode.`);
-        isLiveMode = false;
-        liveToggle.checked = false;
-        datePicker.disabled = false;
-    } else if (status.is_open && !isLiveMode) {
-        console.log(`[App] ${exchange} is open. Activating Live Mode.`);
-        isLiveMode = true;
-        liveToggle.checked = true;
-        datePicker.disabled = true;
-        const todayStr = new Date().toLocaleDateString('en-CA');
-        datePicker.value = todayStr;
-    }
-
+    // Logic removed: Let the user or server handle live mode state.
+    
     // Always initialize WebSocket and join room to listen for background fetch updates (historical or live)
     dataService.initWebSocket(exchange, symbol);
     
@@ -186,6 +209,7 @@ window.buildParams = function () {
         date: datePicker.value,
         time: timeSelector.time,
         interval: intervalSelect.value,
+        next_expiry: document.getElementById('next-expiry-chk').checked ? 'true' : 'false',
         ...(isLiveMode ? { live: 'true' } : {})
     };
 }
@@ -272,15 +296,6 @@ datePicker.max = todayStr;
 datePicker.value = initialDateStr;
 
 datePicker.addEventListener('change', () => {
-    // Check for weekends (Note: Date picking in localized browsers can be tricky, using 'CA' or splitting ensures local day)
-    const dateVal = datePicker.value;
-    if (dateVal) {
-        const d = new Date(dateVal);
-        const day = d.getUTCDay(); // UTC because YYYY-MM-DD input is treated as UTC midnight
-        if (day === 0 || day === 6) {
-            showNotice(`The selected date (${dateVal}) is a trading holiday (Weekend). No data will be fetched.`);
-        }
-    }
     updateIntervalAvailability();
     fetchData();
 });
@@ -310,42 +325,18 @@ document.getElementById('interval-select').addEventListener('change', () => {
     fetchData();
 });
 
-// ── Market Status (single source of truth: fetched from backend) ─────────────
-const _marketStatusCache = {};  // { exchange: { ts, is_open, start, end, reason } }
-const MARKET_STATUS_TTL_MS = 60_000; // re-check at most once per minute
+nextExpiryChk.addEventListener('change', () => {
+    dataService.clear();
+    fetchData();
+});
 
-async function fetchMarketStatus(exchange = 'NSE') {
-    const cached = _marketStatusCache[exchange];
-    if (cached && (Date.now() - cached.ts) < MARKET_STATUS_TTL_MS) {
-        return cached;
-    }
-    try {
-        const res = await fetch(`/api/market-status?exchange=${exchange}`);
-        const data = await res.json();
-        _marketStatusCache[exchange] = { ...data, ts: Date.now() };
-        return _marketStatusCache[exchange];
-    } catch (e) {
-        console.warn('[App] Could not reach /api/market-status, falling back to cache:', e);
-        return cached || { is_open: false, reason: 'unknown', start: '09:15', end: '15:30' };
-    }
-}
+
 
 liveToggle.addEventListener('change', async () => {
     isLiveMode = liveToggle.checked;
     const exchange = symbolSelector.exchange || 'NSE';
 
     if (isLiveMode) {
-        const status = await fetchMarketStatus(exchange);
-        if (!status.is_open) {
-            showNotice(
-                `Market is closed for ${exchange}. ` +
-                `Live mode is available Mon-Fri, ${status.start}–${status.end} IST. ` +
-                `(Server: ${status.now_ist} IST, reason: ${status.reason})`
-            );
-            liveToggle.checked = false;
-            isLiveMode = false;
-            return;
-        }
         const todayStr = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD
         datePicker.value = todayStr;
         datePicker.disabled = true;
@@ -492,28 +483,12 @@ document.getElementById('loading').style.display = 'none';
 
 (async () => {
     updateIntervalAvailability();
-    const status = await fetchMarketStatus(symbolSelector.exchange);
-    if (status.is_open) {
-        console.log(`[App] Market is open (${status.now_ist} IST). Activating Live Mode automatically...`);
-        liveToggle.checked = true;
-        liveToggle.dispatchEvent(new Event('change'));
-    } else {
-        console.log(`[App] Market closed (${status.reason}). Loading historical data...`);
-        dataService.initWebSocket(symbolSelector.exchange, symbolSelector.symbol);
-        fetchData();
-    }
+    console.log(`[App] App initialized. Fetching initial data...`);
+    dataService.initWebSocket(symbolSelector.exchange, symbolSelector.symbol);
+    fetchData();
 })();
 
 // ── Auto-Open Background Timer ──────────────────────────────────────────────
 setInterval(async () => {
     updateIntervalAvailability();
-    if (!isLiveMode) {
-        const exchange = symbolSelector.exchange || 'NSE';
-        const status = await fetchMarketStatus(exchange);
-        if (status.is_open) {
-            console.log(`[App] Market has opened. Switching to Live Mode...`);
-            liveToggle.checked = true;
-            liveToggle.dispatchEvent(new Event('change'));
-        }
-    }
 }, 60000);
