@@ -260,7 +260,7 @@ window.buildParams = function () {
     };
 }
 
-function fetchData(silent = false) {
+async function fetchData(silent = false) {
     const datePicker = document.getElementById('date-picker');
     if (!datePicker.value) return;
 
@@ -310,7 +310,7 @@ function fetchData(silent = false) {
         dataService.clearData();
     }
     
-    dataService.load(window.buildParams(), silent);
+    await dataService.load(window.buildParams(), silent);
 }
 
 function renderCharts() {
@@ -393,7 +393,8 @@ document.getElementById('time-slider').addEventListener('input', () => {
 // Remove the old 'change' listener since we now use debounced 'input'
 // document.getElementById('time-slider').addEventListener('change', fetchData);
 
-document.getElementById('interval-select').addEventListener('change', () => {
+document.getElementById('interval-select').addEventListener('change', (e) => {
+    e.target.dataset.userHardSet = "true";
     const exchange = symbolSelector.exchange || 'NSE';
     const symbol   = symbolSelector.symbol || 'NIFTY';
     const interval = parseInt(document.getElementById('interval-select').value);
@@ -458,12 +459,7 @@ liveToggle.addEventListener('change', async () => {
             isLiveMode = false;
             datePicker.disabled = false;
 
-            if (exchange === 'MCX') {
-                showNotice(`No MCX data available for today.`, 6000);
-                return;
-            }
-
-            // Roll date picker back to previous trading day (NSE/BSE)
+            // Roll date picker back to previous trading day
             const datePart = datePicker.value;
             const prev = new Date(datePart);
             prev.setDate(prev.getDate() - 1);
@@ -489,14 +485,13 @@ liveToggle.addEventListener('change', async () => {
             timeSelector.updateDisplay();
         }
 
-        // Track active symbol for WS filtering, then join room
+        // Track active symbol for WS filtering, then fetch and join
         dataService.setActiveSymbol(symbol);
+        await fetchData();
         dataService.initWebSocket(symbol);
 
-        console.log(`[App] Live mode ON for ${symbol}. Spot confirmed: ${probe.spot_price}`);
-        showNotice(`Live mode ON — ${symbol} @ ${probe.spot_price || '…'}`, 4000);
-
-        fetchData();
+        console.log(`[App] Live mode ON for ${symbol}.`);
+        showNotice(`Live mode ON — ${symbol}`, 4000);
 
     } else {
         // ── LIVE OFF: stop live room subscription ─────────────────────────
@@ -632,8 +627,16 @@ function updateIntervalAvailability() {
         }
     });
 
-    // Auto-switch if user was on a 15m but it's now disabled (e.g. at 09:20 AM)
-    if (intervalSelect.selectedOptions[0] && intervalSelect.selectedOptions[0].disabled) {
+    // After 10:00 AM, if the interval wasn't manually set, default to 15m for stable viewing.
+    const isLateMorning = ist.getHours() > 10 || (ist.getHours() === 10 && ist.getMinutes() >= 0);
+    const currentVal = intervalSelect.value;
+    
+    if (isToday && isLateMorning && currentVal !== "15" && !intervalSelect.dataset.userHardSet) {
+        console.log("[App] Defaulting to 15m interval (Post-10AM session).");
+        intervalSelect.value = "15";
+        timeSelector.reconfigure(exchange, 15);
+    } else if (intervalSelect.selectedOptions[0] && intervalSelect.selectedOptions[0].disabled) {
+        // Auto-switch if current is disabled (e.g. 15m at 09:15 AM)
         intervalSelect.value = firstAvailable || "1";
         timeSelector.reconfigure(exchange, parseInt(intervalSelect.value));
     }
@@ -695,11 +698,11 @@ document.getElementById('loading').style.display = 'none';
     // The socket is kept alive; the active symbol filter in DataService ensures
     // only updates for the current symbol trigger re-renders.
     try {
-        // 3. Initialize WebSocket room join FIRST (so we don't miss bg signals)
-        dataService.initWebSocket(initialSymbol);
+        // 3. Trigger initial data fetch
+        await fetchData();
 
-        // 4. Then trigger the initial data fetch
-        fetchData();
+        // 4. Then initialize WebSocket room join
+        dataService.initWebSocket(initialSymbol);
     } catch (e) {
         console.error("[App] Socket initialization failed:", e);
     }

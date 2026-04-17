@@ -101,12 +101,10 @@ def _main_scheduler_loop():
                     for (interval, next_exp) in tracks:
                         fetch_key = f"{symbol}_{interval}_{next_exp}"
                         
+                        # Polling logic: Follow the interval strictly (e.g. 15m interval polls at :00, :15, :30, :45)
+                        # During the 9:16-9:20 peak startup window, we poll more aggressively to ensure initial load.
                         is_startup = (cur_hour == 9 and 16 <= cur_min <= 20)
-                        
-                        if interval == 1:
-                            is_due = (cur_min % 2 == 0)
-                        else:
-                            is_due = (cur_min % interval == 0)
+                        is_due = (cur_min % interval == 0)
 
                         if (is_startup or is_due) and last_fetch_times.get(fetch_key) != (cur_hour, cur_min):
                             delay = 2 if cur_min % 5 != 0 else 5

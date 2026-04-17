@@ -14,7 +14,7 @@ class NormalizationStrategy(ABC):
 class DefaultROCStrategy(NormalizationStrategy):
     """Standard ROC (%) calculation with hard clipping/clamping."""
     def process(self, series, window=5, clip_range=(-100, 100), **kwargs):
-        roc = (series.pct_change() * 100).replace([np.inf, -np.inf], 0).fillna(0)
+        roc = (series.pct_change() * 100).replace([np.inf, -np.inf], 0)
         
         mask_series = kwargs.get('mask_series')
         mask_threshold = kwargs.get('mask_threshold')
@@ -23,12 +23,14 @@ class DefaultROCStrategy(NormalizationStrategy):
             roc = roc.mask(mask_series.shift(1) < mask_threshold, 0)
         
         roc = roc.clip(*clip_range)
-        return roc.rolling(window=window, min_periods=1).mean().round(2)
+        # We fillna(0) AFTER clipping, but we want the rolling mean to 
+        # IGNORE the very first NaN (baseline row) so session start is fresh.
+        return roc.rolling(window=window, min_periods=1).mean().fillna(0).round(2)
 
 class SoftClipStrategy(NormalizationStrategy):
     """Use tanh to gently squash spikes towards +/- limit without hard clipping."""
     def process(self, series, window=5, limit=50, scale=15, **kwargs):
-        roc = (series.pct_change() * 100).replace([np.inf, -np.inf], 0).fillna(0)
+        roc = (series.pct_change() * 100).replace([np.inf, -np.inf], 0)
         
         mask_series = kwargs.get('mask_series')
         mask_threshold = kwargs.get('mask_threshold')
@@ -36,20 +38,17 @@ class SoftClipStrategy(NormalizationStrategy):
             # Kill noise where base value (e.g. IV) was too low to be reliable
             roc = roc.mask(mask_series.shift(1) < mask_threshold, 0)
             
-        # Smoothly squashes large values. 
-        # With limit=50 and scale=15:
-        # - A 15% ROC becomes ~38 (50 * tanh(1))
-        # - A 1000% ROC stays close to 50.
         processed = limit * np.tanh(roc / scale)
-        return processed.rolling(window=window, min_periods=1).mean().round(2)
+        # Avoid smoothing the first session candle with the baseline NaN (0)
+        return processed.rolling(window=window, min_periods=1).mean().fillna(0).round(2)
 
 class LogROCStrategy(NormalizationStrategy):
     """Dampens spikes using a log1p transform (retains negative direction)."""
     def process(self, series, window=5, **kwargs):
-        roc = (series.pct_change() * 100).replace([np.inf, -np.inf], 0).fillna(0)
+        roc = (series.pct_change() * 100).replace([np.inf, -np.inf], 0)
         # sign(x) * log(1 + |x|)
         processed = np.sign(roc) * np.log1p(np.abs(roc))
-        return processed.rolling(window=window, min_periods=1).mean().round(2)
+        return processed.rolling(window=window, min_periods=1).mean().fillna(0).round(2)
 
 class AbsoluteDiffStrategy(NormalizationStrategy):
     """Uses absolute difference (Basis Points) instead of percentage."""

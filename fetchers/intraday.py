@@ -15,34 +15,56 @@ class IntradayCandleFetcher(BaseCandleFetcher):
     def __init__(self, interval: int = core.config.CANDLE_INTERVAL_MINUTES):
         super().__init__(interval)
         import os
-        self._cache_file = os.path.join(core.config.CACHE_DIR, "baseline_cache.json")
-        self._baseline_cache = self._load_cache()
-        self._data_cache = {}  # Store today's candles: {(key, interval): (timestamp, df)}
+        self._cache_file_user = os.path.join(core.config.CACHE_DIR, "baseline.json")
+        self._cache_file_data = os.path.join(core.config.CACHE_DIR, "internal_data.json")
+        self._baseline_user = self._load_json(self._cache_file_user) # Nested: {date: {symbol: {type: {key: oi}}}}
+        self._baseline_data = self._load_json(self._cache_file_data) # Flat: {f"{key}_{date}": candles}
+        self._data_cache = {}  
         import upstox_client
         self._quote_api = upstox_client.MarketQuoteApi(self._api_client)
-        self._hist_fetcher = None # Lazy init
+        self._hist_fetcher = None 
         self._warmup_lock = threading.Lock()
         self._fetching_keys = set()
 
-    def _load_cache(self):
+    def _load_json(self, path):
         import json, os
-        if os.path.exists(self._cache_file):
+        if os.path.exists(path):
             try:
-                with open(self._cache_file, 'r') as f:
+                with open(path, 'r') as f:
                     return json.load(f)
             except: pass
         return {}
 
-    def _save_cache(self, key, row_dict):
+    def _save_cache_entry(self, inst_obj, date_str, candle_list):
+        """Saves current OI to baseline.json and full list to internal_data.json."""
         import json, os
-        os.makedirs(os.path.dirname(self._cache_file), exist_ok=True)
-        # Avoid growing into infinity: only keep today's entries
-        today = ist_now().strftime("%Y-%m-%d")
-        self._baseline_cache = {k: v for k, v in self._baseline_cache.items() if today in k}
-        self._baseline_cache[key] = row_dict
+        if not candle_list: return
+        
+        last_oi = candle_list[-1].get("open_interest", 0.0)
+        
+        # User structure: SYMBOL -> TYPE -> KEY: OI
+        if hasattr(inst_obj, 'symbol') and hasattr(inst_obj, 'option_type'):
+            base_name = inst_obj.symbol.split(' ')[0]
+            opt_type = inst_obj.option_type
+            key = inst_obj.key
+        else:
+            base_name = str(inst_obj).split('|')[-1]
+            opt_type = "INDEX"
+            key = str(inst_obj)
+
+        if date_str not in self._baseline_user: self._baseline_user[date_str] = {}
+        if base_name not in self._baseline_user[date_str]: 
+            self._baseline_user[date_str][base_name] = {"CE": {}, "PE": {}, "INDEX": {}}
+        
+        self._baseline_user[date_str][base_name][opt_type][key] = last_oi
+        self._baseline_data[f"{key}_{date_str}"] = candle_list
+        
         try:
-            with open(self._cache_file, 'w') as f:
-                json.dump(self._baseline_cache, f)
+            os.makedirs(os.path.dirname(self._cache_file_user), exist_ok=True)
+            with open(self._cache_file_user, 'w') as f:
+                json.dump(self._baseline_user, f, indent=2)
+            with open(self._cache_file_data, 'w') as f:
+                json.dump(self._baseline_data, f) # Compact internal data
         except: pass
 
     @rate_limited(max_calls=UPSTOX_RATE_LIMIT_CALLS, period=UPSTOX_RATE_LIMIT_PERIOD)
@@ -94,21 +116,20 @@ class IntradayCandleFetcher(BaseCandleFetcher):
             df = self._fetch(instrument_key, "minutes", 1)
             self._is_fallback = True
         
-        # Use persistent baseline cache if available
-        cache_key = f"baseline_{instrument_key}_{date_str}"
-        if cache_key in self._baseline_cache:
-            prev_row_dict = self._baseline_cache[cache_key]
-            if prev_row_dict:
-                 prev_row = pd.DataFrame([prev_row_dict])
-                 prev_row['date'] = pd.to_datetime(prev_row['timestamp'])
-                 prev_row.set_index('date', inplace=True)
-                 df = pd.concat([prev_row, df])
+        # Rule 1: Use internal data cache for calculations
+        cache_key = f"{instrument_key}_{date_str}"
+        if cache_key in self._baseline_data:
+            prev_data = self._baseline_data[cache_key]
+            if prev_data:
+                 prev_df = pd.DataFrame(prev_data)
+                 prev_df['date'] = pd.to_datetime(prev_df['timestamp'])
+                 prev_df.set_index('date', inplace=True)
+                 df = pd.concat([prev_df, df])
                  df = df[~df.index.duplicated(keep="last")].sort_index()
                  return df
 
         if df is not None and not df.empty:
-            # If we reached here, it means we don't have a cached baseline and need a slow fetch.
-            # Usually handled by warmup_cache in bulk.
+            # Rule 2: Fetch and persist if not found
             try:
                 actual_interval = 1 if getattr(self, "_is_fallback", False) else self.interval
                 if self._hist_fetcher is None:
@@ -116,15 +137,12 @@ class IntradayCandleFetcher(BaseCandleFetcher):
                     self._hist_fetcher = HistoricalCandleFetcher()
                 
                 self._hist_fetcher.interval = actual_interval
-                
                 from core.utils import get_last_trading_day
                 from datetime import datetime, timedelta
                 
-                # Rule 2: Deep Baseline Rollback (up to 5 days)
-                # If 'yesterday' is empty (maintenance), keep looking back until we find a session.
                 cursor_dt = datetime.strptime(date_str, "%Y-%m-%d")
                 prev_df = None
-                for _ in range(5):
+                for _ in range(30):
                     cursor_dt = get_last_trading_day(cursor_dt - timedelta(days=1))
                     prev_date = cursor_dt.strftime("%Y-%m-%d")
                     prev_df = self._hist_fetcher.fetch_single(instrument_key, "minutes", actual_interval, prev_date, prev_date)
@@ -132,26 +150,18 @@ class IntradayCandleFetcher(BaseCandleFetcher):
                         break
                 
                 if prev_df is not None and not prev_df.empty:
-                    prev_row = prev_df.tail(1).copy()
+                    rows_to_save = prev_df.reset_index().to_dict('records')
+                    for r in rows_to_save: r['date'] = str(r['date'])
                     
-                    # Single probe if not part of a batch warmup
-                    if prev_row["open_interest"].sum() == 0:
-                        try:
-                            q_resp = self._quote_api.get_full_market_quote(instrument_key, api_version='2.0')
-                            if q_resp and q_resp.data and instrument_key in q_resp.data:
-                                val = q_resp.data[instrument_key]
-                                prev_row["open_interest"] = float(val.oi)
-                        except: pass
-
-                    # Save to persistent cache
-                    row_to_save = prev_row.reset_index().to_dict('records')[0]
-                    row_to_save['date'] = str(row_to_save['date'])
-                    self._save_cache(cache_key, row_to_save)
-
-                    df = pd.concat([prev_row, df])
+                    # Store in nested structure via helper
+                    # We pass the key as fallback in case we don't have the instrument object here
+                    self._save_cache_entry(instrument_key, date_str, rows_to_save)
+                    
+                    df = pd.concat([prev_df, df])
                     df = df[~df.index.duplicated(keep="last")].sort_index()
             except Exception as e:
-                print(f"[IntradayFetcher] Warning: Deep Baseline anchoring failed for {instrument_key}: {e}")
+                print(f"[IntradayFetcher] Warning: Baseline fetch failed for {instrument_key}: {e}")
+
 
 
         return df
@@ -162,10 +172,9 @@ class IntradayCandleFetcher(BaseCandleFetcher):
         keys = [inst.key if hasattr(inst, 'key') else inst for inst in instruments]
         
         # 1. Identify missing baselines
-        missing_keys = [k for k in keys if f"baseline_{k}_{date_str}" not in self._baseline_cache]
+        missing_keys = [k for k in keys if f"{k}_{date_str}" not in self._baseline_data]
         if not missing_keys:
             return
-
         print(f"[IntradayFetcher] Warming up {len(missing_keys)} missing baselines...")
         
         def do_warmup(key):
@@ -182,39 +191,60 @@ class IntradayCandleFetcher(BaseCandleFetcher):
             executor.map(lambda k: do_warmup(k), missing_keys)
 
         # 3. Batch Quote Probe for remaining 0-OI baselines
-        # Identify those that still have 0 OI after the fetch
         needs_oi_probe = []
         for key in missing_keys:
-            cache_key = f"baseline_{key}_{date_str}"
-            row = self._baseline_cache.get(cache_key)
-            if row and row.get("open_interest", 0) == 0:
-                needs_oi_probe.append(key)
+            flat_key = f"{key}_{date_str}"
+            data = self._baseline_data.get(flat_key)
+            if data and isinstance(data, list):
+                if data[-1].get("open_interest", 0) == 0:
+                    needs_oi_probe.append(key)
         
         if needs_oi_probe:
             print(f"[IntradayFetcher] Batch probing OI for {len(needs_oi_probe)} instruments...")
-            # Upstox allows up to 50 instruments per quote call
             for i in range(0, len(needs_oi_probe), 50):
                 batch = needs_oi_probe[i:i+50]
                 try:
                     q_resp = self._quote_api.get_full_market_quote(",".join(batch), api_version='2.0')
-
                     if q_resp and q_resp.data:
                         for k, val in q_resp.data.items():
-                            c_key = f"baseline_{k}_{date_str}"
-                            if c_key in self._baseline_cache:
-                                self._baseline_cache[c_key]["open_interest"] = float(val.oi)
-                                # Silent update - we don't need to re-save the whole file every time
+                            flat_key = f"{k}_{date_str}"
+                            if flat_key in self._baseline_data:
+                                # Update internal data list
+                                self._baseline_data[flat_key][-1]["open_interest"] = float(val.oi)
+                                # Update user-facing nested summary (we need to search for it)
+                                # For simplicity, we'll just flush the whole cache at the end
                 except Exception as e:
                     print(f"[IntradayFetcher] Batch OI probe error: {e}")
             
-            # Final flush of the updated cache
+            # Re-sync user summary from patched data
+            self._resync_user_summary(instruments, date_str)
+            
+            # Flush both to disk
             try:
                 import json
-                with open(self._cache_file, 'w') as f:
-                    json.dump(self._baseline_cache, f)
+                with open(self._cache_file_user, 'w') as f:
+                    json.dump(self._baseline_user, f, indent=2)
+                with open(self._cache_file_data, 'w') as f:
+                    json.dump(self._baseline_data, f)
             except: pass
 
+        self._resync_user_summary(instruments, date_str)
         print(f"[IntradayFetcher] Cache warmup complete.")
+
+    def _resync_user_summary(self, instruments, date_str):
+        """Helper to sync the user-facing baseline.json after a batch OI probe."""
+        for inst in instruments:
+            if not hasattr(inst, 'key'): continue
+            flat_key = f"{inst.key}_{date_str}"
+            data = self._baseline_data.get(flat_key)
+            if data:
+                last_oi = data[-1].get("open_interest", 0.0)
+                base_name = inst.symbol.split(' ')[0] if hasattr(inst, 'symbol') else str(inst).split('|')[-1]
+                opt_type  = inst.option_type if hasattr(inst, 'option_type') else "INDEX"
+                
+                if date_str not in self._baseline_user: self._baseline_user[date_str] = {}
+                if base_name not in self._baseline_user[date_str]: self._baseline_user[date_str][base_name] = {"CE": {}, "PE": {}, "INDEX": {}}
+                self._baseline_user[date_str][base_name][opt_type][inst.key] = last_oi
 
     def get_spot_candles(self, spot_key: str, date_str: str) -> pd.DataFrame | None:
         """Fetch spot/index candles for today with historical baseline."""
@@ -225,16 +255,16 @@ class IntradayCandleFetcher(BaseCandleFetcher):
         if df is None or df.empty:
             return None
 
-        # Prepend baseline for ROC/IV anchoring
-        cache_key = f"baseline_{spot_key}_{date_str}"
-        if cache_key in self._baseline_cache:
-            prev_row_dict = self._baseline_cache[cache_key]
-            if prev_row_dict:
-                 prev_row = pd.DataFrame([prev_row_dict])
-                 prev_row['date'] = pd.to_datetime(prev_row['timestamp'])
-                 prev_row.set_index('date', inplace=True)
-                 df = pd.concat([prev_row, df])
-                 return df[~df.index.duplicated(keep="last")].sort_index()
+        # Rule 1: Use internal data cache for Spot calculations
+        cache_key = f"{spot_key}_{date_str}"
+        if cache_key in self._baseline_data:
+            prev_data = self._baseline_data[cache_key]
+            if prev_data:
+                prev_df = pd.DataFrame(prev_data)
+                prev_df['date'] = pd.to_datetime(prev_df['timestamp'])
+                prev_df.set_index('date', inplace=True)
+                df = pd.concat([prev_df, df])
+                return df[~df.index.duplicated(keep="last")].sort_index()
 
         # If not in cache, fallback to slow fetch (instrument_key = spot_key)
         try:
@@ -248,7 +278,7 @@ class IntradayCandleFetcher(BaseCandleFetcher):
             # Rule 2: Deep Baseline Rollback for Spot
             cursor_dt = datetime.strptime(date_str, "%Y-%m-%d")
             prev_df = None
-            for _ in range(5):
+            for _ in range(30):
                 cursor_dt = get_last_trading_day(cursor_dt - timedelta(days=1))
                 prev_date = cursor_dt.strftime("%Y-%m-%d")
                 prev_df = self._hist_fetcher.fetch_single(spot_key, "minutes", self.interval, prev_date, prev_date)
@@ -256,13 +286,13 @@ class IntradayCandleFetcher(BaseCandleFetcher):
                     break
 
             if prev_df is not None and not prev_df.empty:
-                prev_row = prev_df.tail(1).copy()
-                # Save to cache
-                row_to_save = prev_row.reset_index().to_dict('records')[0]
-                row_to_save['date'] = str(row_to_save['date'])
-                self._save_cache(cache_key, row_to_save)
+                rows_to_save = prev_df.reset_index().to_dict('records')
+                for r in rows_to_save: r['date'] = str(r['date'])
                 
-                df = pd.concat([prev_row, df])
+                # Store in nested structure
+                self._save_cache_entry(spot_key, date_str, rows_to_save)
+                
+                df = pd.concat([prev_df, df])
                 df = df[~df.index.duplicated(keep="last")].sort_index()
         except: pass
 

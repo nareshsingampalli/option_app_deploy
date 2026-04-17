@@ -230,7 +230,8 @@ def pre_market_status():
     live_fetcher = IntradayCandleFetcher(interval=1)
 
     
-    candidate = get_prev_trading_day(today_str)
+    candidate = today_str if after_close else get_prev_trading_day(today_str)
+    print(f"[PreMarket] after_close={after_close}, starting probe with candidate={candidate}")
     
     # Resolve spot key for probe
     from core.config import NSE_INDEX_KEYS
@@ -243,12 +244,16 @@ def pre_market_status():
         spot_key = BSE_INDEX_KEYS.get("SENSEX", "BSE_INDEX|SENSEX")
 
     # Probe up to 5 days back to skip holidays
-    # Probe rollback: NSE/BSE probe up to 5 days, MCX only probes the candidate directly.
-    probe_range = 1 if exchange == "MCX" else 5
+    # Probe up to 30 days back to skip holidays
+    probe_range = 30
     for i in range(probe_range):
         try:
-            # 1. Primary: Try Historical (where past data belongs)
-            df = hist_fetcher.get_spot_candles(spot_key, candidate)
+            # 1. Primary: Try Historical (for most past dates)
+            if candidate == today_str:
+                # Post-market 'today': historical API is usually empty, use Intraday.
+                df = live_fetcher.get_spot_candles(spot_key, candidate)
+            else:
+                df = hist_fetcher.get_spot_candles(spot_key, candidate)
             
             # 2. Bridge: During midnight maintenance (12am-1am), data for 'yesterday' 
             # might still be on the Intraday server and not yet on Historical.

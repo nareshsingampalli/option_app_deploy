@@ -134,12 +134,14 @@ class HistoricalCandleFetcher(BaseCandleFetcher):
         df = None
         self._confirmed_from_date = None  # Reset for this pipeline run
 
-        for attempt in range(5):
+        for attempt in range(30):
             df = self.fetch_single(spot_key, "minutes", self.interval, date_str, from_date)
             if df is None or df.empty:
                 df = self.fetch_single(spot_key, "minutes", 1, date_str, from_date)
 
             if df is not None and not df.empty:
+                # Filter to only keep candles from the target date and the previous trading day(s)
+                # We need at least 2 distinct trading days in the dataframe.
                 unique_days = df.index.strftime("%Y-%m-%d").nunique()
                 if unique_days >= 2:
                     self._confirmed_from_date = from_date  # Cache for option instruments

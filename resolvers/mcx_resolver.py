@@ -68,12 +68,11 @@ class MCXInstrumentResolver(InstrumentResolver):
         return instruments, actual_expiry, is_expired
 
     # ── Helpers ──────────────────────────────────────────────────────────────
-    def get_spot_key(self, commodity: str, reference_date: str) -> str:
+    def get_spot_key(self, commodity: str, reference_date: str, expiry_offset: int = 0) -> str:
         """Public helper: return just the spot instrument key for a commodity."""
         df_all = self._download_instruments()
-        key, _ = self._resolve_spot_key(commodity, df_all, reference_date)
+        key, _ = self._resolve_spot_key(commodity, df_all, reference_date, expiry_offset=expiry_offset)
         return key
-
     def _download_instruments(self) -> pd.DataFrame:
         from core.utils import get_instrument_df
         return get_instrument_df(MCX_INSTRUMENT_URL, "MCX")

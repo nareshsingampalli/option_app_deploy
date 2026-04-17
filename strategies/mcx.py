@@ -30,12 +30,13 @@ class _MCXBasePipeline(MarketDataPipeline):
         self.symbol = symbol.upper()
 
     def _get_spot_key(self, symbol: str, date_str: str) -> str:
-        if symbol not in self._spot_key_cache:
+        cache_lookup_key = f"{symbol}_{self.expiry_offset}"
+        if cache_lookup_key not in self._spot_key_cache:
             if isinstance(self._mcx_resolver, MCXInstrumentResolver):
-                self._spot_key_cache[symbol] = self._mcx_resolver.get_spot_key(symbol, date_str)
+                self._spot_key_cache[cache_lookup_key] = self._mcx_resolver.get_spot_key(symbol, date_str, expiry_offset=self.expiry_offset)
             else:
                 raise RuntimeError("MCX pipeline requires MCXInstrumentResolver")
-        return self._spot_key_cache[symbol]
+        return self._spot_key_cache[cache_lookup_key]
 
 
 class MCXLivePipeline(_MCXBasePipeline):
