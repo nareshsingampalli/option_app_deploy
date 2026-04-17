@@ -228,20 +228,23 @@ class DataService {
                     }
 
                     // Filter by interval
-                    if (data.interval && parseInt(data.interval) !== parseInt(params.interval)) {
-                        console.log(`[WS] Interval mismatch: ${data.interval}m vs active ${params.interval}m`);
+                    const incomingInterval = parseInt(data.interval);
+                    const activeInterval   = parseInt(params.interval);
+                    if (!isNaN(incomingInterval) && incomingInterval !== activeInterval) {
+                        console.log(`[WS] Interval mismatch: ${incomingInterval}m vs active ${activeInterval}m`);
                         return; 
                     }
 
-                    // Filter by expiry track
+                    // Filter by expiry track (Handle 'true'/'false' strings from buildParams)
                     const incomingNext = !!data.next_expiry;
-                    const activeNext   = !!params.next_expiry;
+                    const activeNext   = (params.next_expiry === true || params.next_expiry === 'true');
+                    
                     if (incomingNext !== activeNext) {
                         console.log(`[WS] Expiry mismatch: Next=${incomingNext} vs active Next=${activeNext}`);
                         return;
                     }
 
-                    console.log(`[WS] Update accepted for ${incomingSymbol} (${data.interval}m, next=${incomingNext}). Refreshing UI...`);
+                    console.log(`[WS] Update accepted for ${incomingSymbol} (${incomingInterval}m, next=${incomingNext}). Refreshing UI...`);
                     this.load(params, true);
                 });
 
