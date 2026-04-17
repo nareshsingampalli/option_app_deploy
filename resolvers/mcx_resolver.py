@@ -6,7 +6,7 @@ Dynamic resolver — NO hardcoded MCX_FO keys.
 Flow
 ----
 1. Download MCX.json.gz from Upstox assets.
-2. Find FUT instruments for the commodity → sort_values(expiry ASC) → take first = spot_key.
+2. Find FUT instruments for the commodity -> sort_values(expiry ASC) -> take first = spot_key.
 3. Apply D-1 rule: if today is within 1 day of expiry, use next expiry.
 4. Use precise_pattern to filter CE/PE instruments for that expiry.
 5. Select strikes around ATM (step = MCX_STRIKE_STEP = 50).

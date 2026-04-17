@@ -5,18 +5,18 @@ Defines the skeleton of the option chain data pipeline.
 Concrete subclasses override only the steps that differ.
 
 Pipeline skeleton (run)
-────────────────────────
-  1. fetch_spot_price()     ← abstract: each mode fetches differently
-  2. build_spot_map()       ← abstract: intraday vs historical 5-min
-  3. resolver.resolve()     ← injected InstrumentResolver
-  4. _process_all()         ← concrete: shared IV/ROC logic
-  5. storage_chain.save()   ← injected StorageBackend chain
+-----------------------
+  1. fetch_spot_price()     <- abstract: each mode fetches differently
+  2. build_spot_map()       <- abstract: intraday vs historical 5-min
+  3. resolver.resolve()     <- injected InstrumentResolver
+  4. _process_all()         <- concrete: shared IV/ROC logic
+  5. storage_chain.save()   <- injected StorageBackend chain
 
 Dependency injection
 --------------------
-  • fetcher   → BaseCandleFetcher (from Factory)
-  • resolver  → InstrumentResolver (NSEActive/NSEExpired/MCX)
-  • storage   → StorageHandler chain (File → DB)
+  * fetcher   -> BaseCandleFetcher (from Factory)
+  * resolver  -> InstrumentResolver (NSEActive/NSEExpired/MCX)
+  * storage   -> StorageHandler chain (File -> DB)
 """
 
 from __future__ import annotations

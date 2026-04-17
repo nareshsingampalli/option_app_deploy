@@ -7,11 +7,11 @@ Selects the correct BaseCandleFetcher subclass based on:
   - target_date vs last_expired_dt (NSE only)
 
 Decision table
-──────────────────────────────────────────────────────────
-live_mode = True              → IntradayCandleFetcher
-NSE + date ≤ last_expired_dt  → ExpiredCandleFetcher
-anything else                 → HistoricalCandleFetcher
-──────────────────────────────────────────────────────────
+----------------------------------------------------------
+live_mode = True              -> IntradayCandleFetcher
+NSE + date <= last_expired_dt  -> ExpiredCandleFetcher
+anything else                 -> HistoricalCandleFetcher
+----------------------------------------------------------
 """
 
 from __future__ import annotations
