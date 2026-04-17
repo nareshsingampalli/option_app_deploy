@@ -43,8 +43,12 @@ class FileStorageBackend(StorageBackend):
     def save(self, ctx: SaveContext) -> bool:
         csv_path, meta_path = _filename_pair(ctx)
 
-        # In live mode (no time suffix), delete stale files before writing
-        if not ctx.time_str:
+        # In live mode (no time suffix) for TODAY, delete stale files before writing.
+        # Historical daily files (which also have no time suffix) should NOT be deleted.
+        from core.utils import ist_now
+        today_str = ist_now().strftime("%Y-%m-%d")
+        
+        if not ctx.time_str and ctx.date_str == today_str:
             for p in (csv_path, meta_path):
                 if os.path.exists(p):
                     os.remove(p)

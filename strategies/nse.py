@@ -85,39 +85,46 @@ class NSEExpiredPipeline(MarketDataPipeline):
         return df["close"].to_dict() if df is not None and not df.empty else {}
 
     def _process_all(self, instruments: list[Instrument], spot_map: dict, filter_date: str) -> tuple[list[dict], bool]:
-        """
-        Choose the right fetcher for each instrument.
-        If resolver returned active instruments (e.g. April 21), use HistoricalCandleFetcher.
-        Otherwise use our default ExpiredCandleFetcher.
-        """
+        from concurrent.futures import ThreadPoolExecutor, as_completed
         rows: list[dict] = []
         any_fallback = False
 
-        for inst in instruments:
-            # If the instrument key contains the expiry but not in the triple-pipe format, 
-            # or if we detect it's an active instrument (resolved by delegation).
-            # Active NSE keys look like 'NSE_FO|NIFTY264213850CE'. 
-            # Expired keys look like 'NSE_FO|12345|13-04-2026'.
+        def process_one(inst: Instrument):
             fetcher_to_use = self.fetcher
             if inst.key.count("|") < 2:
-                 # Active instrument
                  fetcher_to_use = self._hist_fetch
             
             print(f"[Pipeline] Processing {inst.symbol} using {type(fetcher_to_use).__name__}...")
             try:
                 df = fetcher_to_use.get_candles(inst.key, filter_date, expiry_dt=inst.expiry)
+                
+                # Hybrid Fallback: If expired fetcher fails, try historical (active series)
+                if (df is None or df.empty) and fetcher_to_use != self._hist_fetch:
+                    print(f"[Pipeline] {inst.symbol} not in Expired API. Falling back to Historical API...")
+                    df = self._hist_fetch.get_candles(inst.key, filter_date, expiry_dt=inst.expiry)
+
                 if df is None or df.empty:
-                    continue
-                if getattr(fetcher_to_use, "used_fallback", False):
-                    any_fallback = True
+                    return [], False
+                
+                fallback = getattr(fetcher_to_use, "used_fallback", False)
                 processed = self._process_instrument(df, spot_map, inst, filter_date)
                 for row in processed:
                     row["symbol"]      = inst.symbol
                     row["strike"]      = inst.strike
                     row["option_type"] = inst.option_type
                     row["expiry_text"] = inst.expiry_str
-                    rows.append(row)
+                
+                return processed, fallback
             except Exception as e:
                 print(f"[Pipeline] Error on {inst.symbol}: {e}")
+                return [], False
+
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            future_to_inst = {executor.submit(process_one, inst): inst for inst in instruments}
+            for future in as_completed(future_to_inst):
+                result_rows, fallback = future.result()
+                if fallback:
+                    any_fallback = True
+                rows.extend(result_rows)
 
         return rows, any_fallback

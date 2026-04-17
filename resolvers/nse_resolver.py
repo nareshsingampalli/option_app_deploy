@@ -81,6 +81,7 @@ class NSEActiveResolver(InstrumentResolver):
                     strike=float(strike),
                     option_type=opt_type,
                     expiry=target_expiry.to_pydatetime(),
+                    expiry_str=target_expiry.strftime("%d %b %y").upper()
                 ))
 
         print(f"[NSEActiveResolver] {len(instruments)} instruments around ATM")
@@ -181,6 +182,7 @@ class NSEExpiredResolver(InstrumentResolver):
                     strike=float(strike),
                     option_type=opt_type,
                     expiry=target_expiry_dt,
+                    expiry_str=target_expiry_dt.strftime("%d %b %y").upper()
                 ))
 
         print(f"[NSEExpiredResolver] {len(instruments)} expired instruments selected")

@@ -43,9 +43,10 @@ NSE_INSTRUMENT_URL = _get_instrument_url("market-quote/instruments/exchange/NSE.
 MCX_INSTRUMENT_URL = _get_instrument_url("market-quote/instruments/exchange/MCX.json.gz")
 BSE_INSTRUMENT_URL = _get_instrument_url("market-quote/instruments/exchange/BSE.json.gz")
 
-CACHE_DIR    = "cache"
-NSE_DATA_DIR = "nse_data"
-MCX_DATA_DIR = "mcx_data"
+BASE_DIR     = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CACHE_DIR    = os.path.join(BASE_DIR, "cache")
+NSE_DATA_DIR = os.path.join(BASE_DIR, "nse_data")
+MCX_DATA_DIR = os.path.join(BASE_DIR, "mcx_data")
 # ── Trading time windows (IST, used for data filtering) ─────────────────────
 NSE_MARKET_START = "09:14"
 NSE_MARKET_END   = "15:30"
@@ -70,7 +71,7 @@ MCX_STRIKE_STEP     = 50     # ATM rounding step for MCX
 # Single source of truth for the Upstox API credentials.
 # The dashboard uses /api/refresh-token to reload these from the .env file at runtime.
 UPSTOX_API_URL      = os.getenv("UPSTOX_API_URL", "https://api.upstox.com")
-UPSTOX_ACCESS_TOKEN =  "eyJ0eXAiOiJKV1QiLCJrZXlfaWQiOiJza192MS4wIiwiYWxnIjoiSFMyNTYifQ.eyJzdWIiOiI4Q0FRNzUiLCJqdGkiOiI2OWRlMWUxZDU5ODYwMTEyNjRiMjkyNWEiLCJpc011bHRpQ2xpZW50IjpmYWxzZSwiaXNQbHVzUGxhbiI6dHJ1ZSwiaWF0IjoxNzc2MTY0MzgxLCJpc3MiOiJ1ZGFwaS1nYXRld2F5LXNlcnZpY2UiLCJleHAiOjE3NzYyMDQwMDB9.6izGQu8nIyzFoclmsd7YU3HDL31v8AbWyXvmW8XD9x0"
+UPSTOX_ACCESS_TOKEN =  "eyJ0eXAiOiJKV1QiLCJrZXlfaWQiOiJza192MS4wIiwiYWxnIjoiSFMyNTYifQ.eyJzdWIiOiI4Q0FRNzUiLCJqdGkiOiI2OWUxODIzZWVhOTJhNTBmZTYwZWZjOTQiLCJpc011bHRpQ2xpZW50IjpmYWxzZSwiaXNQbHVzUGxhbiI6dHJ1ZSwiaWF0IjoxNzc2Mzg2NjIyLCJpc3MiOiJ1ZGFwaS1nYXRld2F5LXNlcnZpY2UiLCJleHAiOjE3NzY0NjMyMDB9.lD1zyxaksvf-8hZJ5Q4OXYKUL3Rp2vK-XT7BH4l20aw"
 # ── Token Refresh (Manual fallback) ──────────────────────────────────────────
 def reload_access_token():
     """
@@ -88,8 +89,8 @@ def reload_access_token():
     return False
 
 # ── API rate limits ──────────────────────────────────────────────────────────
-UPSTOX_RATE_LIMIT_CALLS  = 7
-UPSTOX_RATE_LIMIT_PERIOD = 0.6   # seconds
+UPSTOX_RATE_LIMIT_CALLS  = 10
+UPSTOX_RATE_LIMIT_PERIOD = 0.5   # seconds
 
 # ── Redis Token Sync (MQ) ───────────────────────────────────────────────────
 def _start_token_listener():

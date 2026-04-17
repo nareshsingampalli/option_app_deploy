@@ -1,5 +1,4 @@
-"""IntradayCandleFetcher — today's live candle data."""
-
+import threading
 import pandas as pd
 from upstox_client.rest import ApiException
 
@@ -21,6 +20,9 @@ class IntradayCandleFetcher(BaseCandleFetcher):
         self._data_cache = {}  # Store today's candles: {(key, interval): (timestamp, df)}
         import upstox_client
         self._quote_api = upstox_client.MarketQuoteApi(self._api_client)
+        self._hist_fetcher = None # Lazy init
+        self._warmup_lock = threading.Lock()
+        self._fetching_keys = set()
 
     def _load_cache(self):
         import json, os
@@ -101,63 +103,165 @@ class IntradayCandleFetcher(BaseCandleFetcher):
                  return df
 
         if df is not None and not df.empty:
+            # If we reached here, it means we don't have a cached baseline and need a slow fetch.
+            # Usually handled by warmup_cache in bulk.
             try:
                 actual_interval = 1 if getattr(self, "_is_fallback", False) else self.interval
-                from fetchers.historical import HistoricalCandleFetcher
-                hist = HistoricalCandleFetcher()
-                hist.interval = actual_interval
+                if self._hist_fetcher is None:
+                    from fetchers.historical import HistoricalCandleFetcher
+                    self._hist_fetcher = HistoricalCandleFetcher()
+                
+                self._hist_fetcher.interval = actual_interval
                 
                 from core.utils import get_last_trading_day
                 from datetime import datetime, timedelta
-                dt = datetime.strptime(date_str, "%Y-%m-%d")
-                prev_date = get_last_trading_day(dt - timedelta(days=1)).strftime("%Y-%m-%d")
                 
-                prev_df = hist.fetch_single(instrument_key, "minutes", actual_interval, prev_date, prev_date)
+                # Rule 2: Deep Baseline Rollback (up to 5 days)
+                # If 'yesterday' is empty (maintenance), keep looking back until we find a session.
+                cursor_dt = datetime.strptime(date_str, "%Y-%m-%d")
+                prev_df = None
+                for _ in range(5):
+                    cursor_dt = get_last_trading_day(cursor_dt - timedelta(days=1))
+                    prev_date = cursor_dt.strftime("%Y-%m-%d")
+                    prev_df = self._hist_fetcher.fetch_single(instrument_key, "minutes", actual_interval, prev_date, prev_date)
+                    if prev_df is not None and not prev_df.empty:
+                        break
                 
                 if prev_df is not None and not prev_df.empty:
                     prev_row = prev_df.tail(1).copy()
                     
-                    # ── Live-Mode OI Enhancement ────────────────────────────────
+                    # Single probe if not part of a batch warmup
                     if prev_row["open_interest"].sum() == 0:
                         try:
-                            print(f"[Intraday] Probing Market Quote for baseline OI: {instrument_key}")
-                            quote_resp = self._quote_api.get_full_market_quote(instrument_key)
-                            if quote_resp and quote_resp.data:
-                                data_val = quote_resp.data.get(instrument_key)
-                                if data_val and hasattr(data_val, 'oi'):
-                                    prev_row["open_interest"] = float(data_val.oi)
-                                    print(f"[Intraday] Found baseline OI: {data_val.oi}")
-                        except Exception as q_err:
-                            print(f"[Intraday] Market Quote probe failed: {q_err}")
+                            q_resp = self._quote_api.get_full_market_quote(instrument_key, api_version='2.0')
+                            if q_resp and q_resp.data and instrument_key in q_resp.data:
+                                val = q_resp.data[instrument_key]
+                                prev_row["open_interest"] = float(val.oi)
+                        except: pass
 
                     # Save to persistent cache
                     row_to_save = prev_row.reset_index().to_dict('records')[0]
-                    # Convert timestamp back to string for JSON
                     row_to_save['date'] = str(row_to_save['date'])
                     self._save_cache(cache_key, row_to_save)
 
                     df = pd.concat([prev_row, df])
                     df = df[~df.index.duplicated(keep="last")].sort_index()
-                    print(f"[IntradayFetcher] Anchored {instrument_key} to baseline from {prev_date}")
             except Exception as e:
-                print(f"[IntradayFetcher] Warning: Baseline anchoring failed for {instrument_key}: {e}")
+                print(f"[IntradayFetcher] Warning: Deep Baseline anchoring failed for {instrument_key}: {e}")
+
 
         return df
 
     def warmup_cache(self, instruments: list, date_str: str):
-        """Pre-fetch and cache baselines for a list of instruments in parallel (IO optimization)."""
+        """Pre-fetch and cache baselines in bulk (IO optimization)."""
         import concurrent.futures
-        # If passed objects, extract keys. If passed strings (legacy/direct), use as is.
         keys = [inst.key if hasattr(inst, 'key') else inst for inst in instruments]
         
+        # 1. Identify missing baselines
+        missing_keys = [k for k in keys if f"baseline_{k}_{date_str}" not in self._baseline_cache]
+        if not missing_keys:
+            return
+
+        print(f"[IntradayFetcher] Warming up {len(missing_keys)} missing baselines...")
+        
+        def do_warmup(key):
+            with self._warmup_lock:
+                if key in self._fetching_keys: return
+                self._fetching_keys.add(key)
+            try:
+                self.get_candles(key, date_str)
+            finally:
+                with self._warmup_lock: self._fetching_keys.remove(key)
+
+        # 2. Parallel fetch (covers get_candles -> fetch_single + self-caching)
         with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-            for key in keys:
-                 executor.submit(self.get_candles, key, date_str)
-        print(f"[IntradayFetcher] Cache warmup complete for {len(keys)} instruments.")
+            executor.map(lambda k: do_warmup(k), missing_keys)
+
+        # 3. Batch Quote Probe for remaining 0-OI baselines
+        # Identify those that still have 0 OI after the fetch
+        needs_oi_probe = []
+        for key in missing_keys:
+            cache_key = f"baseline_{key}_{date_str}"
+            row = self._baseline_cache.get(cache_key)
+            if row and row.get("open_interest", 0) == 0:
+                needs_oi_probe.append(key)
+        
+        if needs_oi_probe:
+            print(f"[IntradayFetcher] Batch probing OI for {len(needs_oi_probe)} instruments...")
+            # Upstox allows up to 50 instruments per quote call
+            for i in range(0, len(needs_oi_probe), 50):
+                batch = needs_oi_probe[i:i+50]
+                try:
+                    q_resp = self._quote_api.get_full_market_quote(",".join(batch), api_version='2.0')
+
+                    if q_resp and q_resp.data:
+                        for k, val in q_resp.data.items():
+                            c_key = f"baseline_{k}_{date_str}"
+                            if c_key in self._baseline_cache:
+                                self._baseline_cache[c_key]["open_interest"] = float(val.oi)
+                                # Silent update - we don't need to re-save the whole file every time
+                except Exception as e:
+                    print(f"[IntradayFetcher] Batch OI probe error: {e}")
+            
+            # Final flush of the updated cache
+            try:
+                import json
+                with open(self._cache_file, 'w') as f:
+                    json.dump(self._baseline_cache, f)
+            except: pass
+
+        print(f"[IntradayFetcher] Cache warmup complete.")
 
     def get_spot_candles(self, spot_key: str, date_str: str) -> pd.DataFrame | None:
-        """Fetch spot/index candles for today. Empty result means market is closed/holiday."""
+        """Fetch spot/index candles for today with historical baseline."""
         df = self._fetch(spot_key, "minutes", self.interval, date_str=date_str)
         if df is None or df.empty:
             df = self._fetch(spot_key, "minutes", 1, date_str=date_str)
+        
+        if df is None or df.empty:
+            return None
+
+        # Prepend baseline for ROC/IV anchoring
+        cache_key = f"baseline_{spot_key}_{date_str}"
+        if cache_key in self._baseline_cache:
+            prev_row_dict = self._baseline_cache[cache_key]
+            if prev_row_dict:
+                 prev_row = pd.DataFrame([prev_row_dict])
+                 prev_row['date'] = pd.to_datetime(prev_row['timestamp'])
+                 prev_row.set_index('date', inplace=True)
+                 df = pd.concat([prev_row, df])
+                 return df[~df.index.duplicated(keep="last")].sort_index()
+
+        # If not in cache, fallback to slow fetch (instrument_key = spot_key)
+        try:
+            if self._hist_fetcher is None:
+                from fetchers.historical import HistoricalCandleFetcher
+                self._hist_fetcher = HistoricalCandleFetcher()
+            
+            from core.utils import get_last_trading_day
+            from datetime import datetime, timedelta
+            
+            # Rule 2: Deep Baseline Rollback for Spot
+            cursor_dt = datetime.strptime(date_str, "%Y-%m-%d")
+            prev_df = None
+            for _ in range(5):
+                cursor_dt = get_last_trading_day(cursor_dt - timedelta(days=1))
+                prev_date = cursor_dt.strftime("%Y-%m-%d")
+                prev_df = self._hist_fetcher.fetch_single(spot_key, "minutes", self.interval, prev_date, prev_date)
+                if prev_df is not None and not prev_df.empty:
+                    break
+
+            if prev_df is not None and not prev_df.empty:
+                prev_row = prev_df.tail(1).copy()
+                # Save to cache
+                row_to_save = prev_row.reset_index().to_dict('records')[0]
+                row_to_save['date'] = str(row_to_save['date'])
+                self._save_cache(cache_key, row_to_save)
+                
+                df = pd.concat([prev_row, df])
+                df = df[~df.index.duplicated(keep="last")].sort_index()
+        except: pass
+
         return df
+
+

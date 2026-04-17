@@ -73,7 +73,8 @@ class BaseCandleFetcher(ABC):
         """
         short_key = instrument_key.split("|")[-1]  # last segment is most readable
         interval_label = f"{interval}{('-' + unit) if unit else ''}"
-        print(f"[{fetcher_name}] {short_key} | {from_date} → {to_date} | {interval_label}")
+        print(f"[{fetcher_name}] {short_key} | {from_date} -> {to_date} | {interval_label}")
+
 
     def _process_response(self, resp, date_str: str | None = None) -> pd.DataFrame | None:
         """

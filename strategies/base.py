@@ -87,21 +87,29 @@ class MarketDataPipeline(ABC):
 
     # ── Template method (orchestrator) ───────────────────────────────────────
     def run(self, symbol: str, target_date: str, target_time: Optional[str] = None):
+        import time
+        start_time = time.time()
         print(f"\n[Pipeline] Starting: {symbol} | {target_date} {target_time or '(EOD)'}")
 
         # Step 1 — Spot price
+        t0 = time.time()
         spot_price = self.fetch_spot_price(target_date, target_time)
+        t_spot = time.time() - t0
+        
         if not spot_price:
-            print("[Pipeline] Could not resolve spot price. Aborting.")
+            print(f"[Pipeline] Could not resolve spot price ({t_spot:.2f}s). Aborting.")
             self._save([], spot_price, target_date, target_time, None, False, symbol)
             return
 
         # Step 2 — Resolve instruments
+        t0 = time.time()
         instruments, expiry_dt, is_expired = self.resolver.resolve(
             symbol, spot_price, target_date, expiry_offset=self.expiry_offset
         )
+        t_resolve = time.time() - t0
+        
         if not instruments:
-            print("[Pipeline] No instruments found.")
+            print(f"[Pipeline] No instruments found ({t_resolve:.2f}s).")
             self._save([], spot_price, target_date, target_time, expiry_dt, is_expired, symbol)
             return
 
@@ -109,13 +117,22 @@ class MarketDataPipeline(ABC):
         self._notify_instruments(instruments, target_date)
 
         # Step 4 — Build spot map for IV
+        t0 = time.time()
         spot_map = self.build_spot_map(target_date)
+        t_spot_map = time.time() - t0
 
-        # Step 4 — Process each instrument
+        # Step 5 — Process each instrument (Now Parallel)
+        t0 = time.time()
         rows, used_fallback = self._process_all(instruments, spot_map, target_date)
+        t_process = time.time() - t0
 
-        # Step 5 — Save
+        # Step 6 — Save
+        t0 = time.time()
         self._save(rows, spot_price, target_date, target_time, expiry_dt, is_expired, symbol, used_fallback)
+        t_save = time.time() - t0
+
+        total = time.time() - start_time
+        print(f"[Pipeline] Finished {symbol} in {total:.2f}s | Spot:{t_spot:.2f}s | Resolve:{t_resolve:.2f}s | Map:{t_spot_map:.2f}s | ParallelProc:{t_process:.2f}s | Save:{t_save:.2f}s")
 
     # ── Abstract hooks ────────────────────────────────────────────────────────
     @abstractmethod
@@ -132,30 +149,44 @@ class MarketDataPipeline(ABC):
     def _process_all(
         self, instruments: list[Instrument], spot_map: dict, filter_date: str
     ) -> tuple[list[dict], bool]:
-        import time
+        import eventlet
+        from eventlet import GreenPool
+        
         rows: list[dict] = []
         any_fallback = getattr(self.fetcher, "used_fallback", False)
 
-        for inst in instruments:
+        def process_one(inst: Instrument):
             print(f"[Pipeline] Processing {inst.symbol}...")
+            # Yield to the hub before starting a new heavy task
+            eventlet.sleep(0)
             try:
                 df = self.fetcher.get_candles(inst.key, filter_date, expiry_dt=inst.expiry)
                 if df is None or df.empty:
-                    continue
-                if getattr(self.fetcher, "used_fallback", False):
-                    any_fallback = True
+                    return [], False
+                
+                fallback = getattr(self.fetcher, "used_fallback", False)
                 processed = self._process_instrument(df, spot_map, inst, filter_date)
+                
                 for row in processed:
                     row["symbol"]      = inst.symbol
                     row["strike"]      = inst.strike
                     row["option_type"] = inst.option_type
                     row["expiry_text"] = inst.expiry_str
-                    rows.append(row)
                 
-                # Small artificial delay to spread burst out over the rate-limiting period
-                time.sleep(0.1)
+                return processed, fallback
             except Exception as e:
                 print(f"[Pipeline] Error on {inst.symbol}: {e}")
+                return [], False
+
+        # Use GreenPool for cooperative multitasking (yields during I/O)
+        pool = GreenPool(size=10)
+        for result_rows, fallback in pool.imap(process_one, instruments):
+            if fallback:
+                any_fallback = True
+            rows.extend(result_rows)
+            # Yield control back to hub after every instrument processed
+            eventlet.sleep(0)
+
         return rows, any_fallback
 
     def _process_instrument(
@@ -172,7 +203,10 @@ class MarketDataPipeline(ABC):
         expiry_with_time = inst.expiry.replace(hour=self.market_end.hour, minute=self.market_end.minute)
         iv_list: list[float] = []
 
+        import eventlet
         for idx, row in df.iterrows():
+            # Yield every candle iteration to prevent starving the hub
+            eventlet.sleep(0)
             spot_p = spot_map.get(idx)
             if spot_p:
                 exp_t = expiry_with_time

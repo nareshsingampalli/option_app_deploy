@@ -18,9 +18,9 @@ from strategies.base import MarketDataPipeline
 class BSELivePipeline(MarketDataPipeline):
     """Live intraday BSE data."""
 
-    def __init__(self, fetcher: BaseCandleFetcher, resolver: InstrumentResolver, storage: StorageHandler, symbol: str = "SENSEX"):
+    def __init__(self, fetcher: BaseCandleFetcher, resolver: InstrumentResolver, storage: StorageHandler, symbol: str = "SENSEX", expiry_offset: int = 0):
         # BSE uses same trading hours as NSE (mostly)
-        super().__init__(fetcher, resolver, storage, NSE_MARKET_START, NSE_MARKET_END, "option")
+        super().__init__(fetcher, resolver, storage, NSE_MARKET_START, NSE_MARKET_END, "option", expiry_offset=expiry_offset)
         self._spot_key = BSE_INDEX_KEYS.get(symbol.upper(), BSE_INDEX_KEYS["SENSEX"])
 
     def fetch_spot_price(self, target_date: str, target_time: Optional[str]) -> Optional[float]:
@@ -38,8 +38,8 @@ class BSELivePipeline(MarketDataPipeline):
 class BSEHistoricalPipeline(MarketDataPipeline):
     """Historical BSE data."""
 
-    def __init__(self, fetcher: BaseCandleFetcher, resolver: InstrumentResolver, storage: StorageHandler, symbol: str = "SENSEX"):
-        super().__init__(fetcher, resolver, storage, NSE_MARKET_START, NSE_MARKET_END, "option")
+    def __init__(self, fetcher: BaseCandleFetcher, resolver: InstrumentResolver, storage: StorageHandler, symbol: str = "SENSEX", expiry_offset: int = 0):
+        super().__init__(fetcher, resolver, storage, NSE_MARKET_START, NSE_MARKET_END, "option", expiry_offset=expiry_offset)
         self._spot_key = BSE_INDEX_KEYS.get(symbol.upper(), BSE_INDEX_KEYS["SENSEX"])
         assert isinstance(fetcher, HistoricalCandleFetcher), "BSEHistoricalPipeline requires a HistoricalCandleFetcher"
         self._hist: HistoricalCandleFetcher = fetcher

@@ -104,25 +104,55 @@ class HistoricalCandleFetcher(BaseCandleFetcher):
 
     def get_candles(self, instrument_key: str, date_str: str, expiry_dt=None) -> pd.DataFrame | None:
         self.used_fallback = False
-        from_date = self._get_prev_trading_day(date_str)
-        # Log once per pipeline run (deduped by target date)
+
+        # ── Reuse confirmed from_date from the spot probe (set by get_spot_candles) ──
+        # get_spot_candles runs first and determines the correct range by expanding
+        # until 2 days are found. All 14 option instruments then reuse this range
+        # directly — no need to re-run the expansion loop per instrument.
+        from_date = getattr(self, "_confirmed_from_date", None) or self._get_prev_trading_day(date_str)
+
         if getattr(self, "_last_logged_date", None) != date_str:
             self._log_fetch("Historical", instrument_key, from_date, date_str, self.interval, "minutes")
             self._last_logged_date = date_str
+
         df = self.fetch_single(instrument_key, "minutes", self.interval, date_str, from_date)
+
         if (df is None or df.empty) and getattr(self, "last_status", None) != 429:
-            print(f"[Historical] Falling back to 1-min for {instrument_key.split('|')[-1]}")
             df = self.fetch_single(instrument_key, "minutes", 1, date_str, from_date)
             if df is not None and not df.empty:
                 self.used_fallback = True
+
         return df
 
+
+
     def get_spot_candles(self, spot_key: str, date_str: str) -> pd.DataFrame | None:
-        # Same as get_candles: provide continuity across days.
+        # Spot probe runs FIRST and determines the correct from_date by expanding
+        # until 2 distinct trading days are found. The confirmed from_date is cached
+        # so all subsequent get_candles calls (14 option instruments) reuse it directly.
         from_date = self._get_prev_trading_day(date_str)
-        df = self.fetch_single(spot_key, "minutes", self.interval, date_str, from_date)
-        if df is None or df.empty:
-            df = self.fetch_single(spot_key, "minutes", 1, date_str, from_date)
+        df = None
+        self._confirmed_from_date = None  # Reset for this pipeline run
+
+        for attempt in range(5):
+            df = self.fetch_single(spot_key, "minutes", self.interval, date_str, from_date)
+            if df is None or df.empty:
+                df = self.fetch_single(spot_key, "minutes", 1, date_str, from_date)
+
+            if df is not None and not df.empty:
+                unique_days = df.index.strftime("%Y-%m-%d").nunique()
+                if unique_days >= 2:
+                    self._confirmed_from_date = from_date  # Cache for option instruments
+                    break
+                print(f"[Historical][Spot] Only {unique_days} day(s) - expanding range...")
+
+
+            from_date = self._get_prev_trading_day(from_date)
+
+        # If we never found 2 days, still save the deepest from_date reached
+        if self._confirmed_from_date is None:
+            self._confirmed_from_date = from_date
+
         return df
 
     def get_spot_price_at(self, spot_key: str, date_str: str, time_str: str | None) -> float | None:

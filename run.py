@@ -1,8 +1,7 @@
+
+
 """
 run.py — single entry point for the Option Chain Dashboard.
-
-Usage:
-    python run.py
 """
 
 # Import app first, then register routes + scheduler (avoids circular imports)
@@ -27,5 +26,7 @@ def _ensure_schedulers():
 _ensure_schedulers()
 
 if __name__ == "__main__":
-    print("Starting Option Chain Dashboard (Development Mode) on port 8010...")
-    socketio.run(app, host="0.0.0.0", port=8010, debug=False, allow_unsafe_werkzeug=True)
+    print("Starting Option Chain Dashboard (Live Mode + Sockets) on port 8010...")
+    # log_output=False hides the Eventlet "accepted" spam.
+    # Standard Flask/WSGI requests will still show in the console.
+    socketio.run(app, host="0.0.0.0", port=8010, debug=False, log_output=False, allow_unsafe_werkzeug=True)

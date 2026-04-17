@@ -45,9 +45,15 @@ class CandleFetcherFactory:
         -------
         An instantiated BaseCandleFetcher subclass.
         """
-        if live_mode:
-            print(f"[FetcherFactory] LIVE -> IntradayCandleFetcher (int={interval})")
+        # RULE: If date is today, always use Intraday fetcher (snapshot or live).
+        # /historical API is empty for the current calendar date.
+        from core.utils import ist_now
+        today_str = ist_now().strftime("%Y-%m-%d")
+        
+        if live_mode or target_date == today_str:
+            print(f"[FetcherFactory] {target_date} == {today_str} -> IntradayCandleFetcher")
             return IntradayCandleFetcher(interval=interval)
+
 
         if last_expired_dt is not None:
             target_dt = datetime.strptime(target_date, "%Y-%m-%d")

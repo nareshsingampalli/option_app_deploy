@@ -51,6 +51,6 @@ class _RateLimiter:
         return wrapper
 
 
-def rate_limited(max_calls: int = 10, period: float = 1.0) -> Callable:
+def rate_limited(max_calls: int, period: float) -> Callable:
     """Decorator factory — wraps a function with rate-limiting."""
     return _RateLimiter(max_calls, period)

@@ -2,11 +2,24 @@
  * DataService — Behavioral: Observer Pattern (Subject)
  * Fetches data from the API and notifies all registered UI components.
  * UI components never call fetch() directly — they subscribe here.
+ *
+ * Active symbol tracking
+ * ─────────────────────
+ * _activeSymbol : the symbol the user is currently watching (room we are in)
+ * _liveMode     : true when live toggle is ON and market confirmed open+not-holiday
+ *
+ * WS room lifecycle
+ * ─────────────────
+ * - Symbol switch  → emit join_symbol (server-side handler leaves old room)
+ * - Live OFF       → emit leave_symbol, set _liveMode=false
+ * - Full teardown  → stopWebSocket() disconnects the socket
  */
 class DataService {
     constructor(apiService) {
         this._api = apiService;
         this._observers = [];
+        this._activeSymbol = null;   // currently watched symbol
+        this._liveMode     = false;  // is live mode currently active?
         this._rawData = [];
         this._currentParams = null; // Track last loaded params
         this._isLoading = false;    // Guard against re-entrant calls
@@ -59,15 +72,10 @@ class DataService {
             return;
         }
         
-        // Cooldown: skip if triggered within 2 seconds of last fetch (prevent loops)
-        const now = Date.now();
-        if (silent && (now - this._lastLoadTime) < 2000) {
-            console.log("[DataService] Cooling down, skipping background fetch.");
-            return;
-        }
+        // Cooldown removed for maximum responsiveness.
 
         this._isLoading = true;
-        this._lastLoadTime = now;
+        this._lastLoadTime = Date.now();
 
         const loader = document.getElementById('loading');
         if (!silent && loader) {
@@ -84,7 +92,18 @@ class DataService {
 
             if (data.error) {
                 if (!silent) {
-                    if (data.error.includes("Waiting for data")) {
+                    if (data.error.includes("Processing") || data.status === "fetching") {
+                        if (loader) {
+                            const dateLabel = params.date || "Today's";
+                            loader.innerHTML = `<span class="spinner"></span> Catching up on ${dateLabel} data... Please wait.`;
+                            loader.style.display = 'flex';
+                            loader.classList.add('waiting');
+                        }
+                        // Wait for server to finish fetching
+                        if (!this.socket) {
+                            console.log("[DataService] Server is fetching... awaiting result.");
+                        }
+                    } else if (data.error.includes("Waiting for data")) {
                         // Non-blocking: Show as a hint in the UI instead of alert
                         if (loader) {
                             loader.textContent = data.error;
@@ -108,6 +127,12 @@ class DataService {
             const records = Array.isArray(data) ? data : (data.data || []);
             this._rawData = records;
             const meta = data.meta || {};
+
+            // Auto-sync UI live toggle if present in meta
+            const liveToggle = document.getElementById('live-toggle');
+            if (liveToggle && meta.live !== undefined) {
+                liveToggle.checked = (meta.live === true || meta.live === "true");
+            }
 
             this._updateMeta(meta);
             this._notify(records, !silent, status, errorCode);
@@ -140,83 +165,145 @@ class DataService {
 
     // ── WebSocket ────────────────────────────────────────────────────────────
 
-    initWebSocket(prefix, symbol) {
-        this._currentSymbol = symbol;
-        this._currentPrefix = prefix;
+    /**
+     * setActiveSymbol — tracks which symbol is currently being viewed.
+     * Any symbol switch must call this so data_updated events are filtered correctly.
+     */
+    setActiveSymbol(symbol) {
+        this._activeSymbol = symbol ? symbol.toUpperCase() : null;
+    }
+
+    /**
+     * initWebSocket — creates the socket once per page load and joins the symbol's room.
+     * Subsequent calls (symbol switch) just switch rooms via join_symbol.
+     */
+    initWebSocket(symbol) {
+        if (!symbol) return;
+        const upperSym = symbol.toUpperCase();
+        this._activeSymbol = upperSym;
+        this._currentSymbol = upperSym; // Keep for backwards compat
+        const interval = parseInt(document.getElementById('interval-select').value) || 15;
+        const nextExp = document.getElementById('next-expiry-chk')?.checked || false;
+
+        // If socket exists and is connected, just switch the room
         if (this.socket && this.socket.connected) {
-            const params = window.buildParams ? window.buildParams() : { interval: 15 };
-            this.socket.emit("join_symbol", { symbol: symbol, exchange: prefix, interval: params.interval });
+            console.log(`[DataService] Switching WebSocket room: ${this._activeSymbol} → ${upperSym} (int: ${interval}m, next: ${nextExp})`);
+            this.socket.emit("join_symbol", { symbol: upperSym, interval: interval, next_expiry: nextExp });
             return;
         }
 
-        try {
-            this.socket = io();
-            this.socket.on('connect', () => {
-                const params = window.buildParams ? window.buildParams() : { interval: 15 };
-                this.socket.emit("join_symbol", { symbol: this._currentSymbol, exchange: this._currentPrefix, interval: params.interval });
-            });
+        // Only create a NEW connection if none exists or it's disconnected
+        if (!this.socket) {
+            try {
+                console.log(`[DataService] Establishing single WebSocket for tab...`);
+                this.socket = io({
+                    reconnection: true,
+                    reconnectionAttempts: 5,
+                    transports: ['websocket', 'polling']
+                });
 
-            this.socket.on('data_updated', (data) => {
-                const params = window.buildParams ? window.buildParams() : null;
-                const activeSym = params ? params.symbol : this._currentSymbol;
+                this.socket.on('connect', () => {
+                    const currentInterval = parseInt(document.getElementById('interval-select').value) || 15;
+                    const isNext = document.getElementById('next-expiry-chk')?.checked || false;
+                    console.log(`[DataService] WS connected. Joining room: ${this._activeSymbol} (int: ${currentInterval}m, next: ${isNext})`);
+                    this.socket.emit("join_symbol", { 
+                        symbol: this._activeSymbol, 
+                        interval: currentInterval,
+                        next_expiry: isNext
+                    });
+                });
 
-                if (data.symbol === activeSym || (data.prefix === prefix && !data.symbol)) {
-                    console.log(`[DataService] WebSocket update for ${activeSym}`, data);
+                // ── data_updated: only react to the ACTIVELY watched symbol & interval ──
+                this.socket.on('data_updated', (data) => {
+                    const params = window.buildParams ? window.buildParams() : null;
+                    if (!params || !data.symbol) return;
+
+                    const incomingSymbol = data.symbol.toUpperCase();
+                    const activeSymbol   = params.symbol.toUpperCase();
                     
-                    // If the server shifted the date (e.g. holiday fallback), sync our UI state
-                    if (data.date && params && data.date !== params.date) {
-                        console.log(`[DataService] Server provided date ${data.date} (Syncing from ${params.date})`);
-                        const datePicker = document.getElementById('date-picker');
-                        if (datePicker) {
-                            datePicker.value = data.date;
-                            // Reconfigure time slider for the new (past) date so it shows full market range
-                            if (window._timeSelector) {
-                                const exchange = window._symbolSelector ? window._symbolSelector.exchange : 'NSE';
-                                const interval = parseInt(document.getElementById('interval-select').value) || 15;
-                                window._timeSelector.reconfigure(exchange, interval);
-                            }
-                            // Re-fetch with the newly synchronized parameters
-                            const newParams = window.buildParams();
-                            this.load(newParams, true);
-                            return;
-                        }
+                    // Filter by symbol
+                    if (incomingSymbol !== activeSymbol) {
+                        console.log(`[WS] Symbol mismatch: ${incomingSymbol} vs active ${activeSymbol}`);
+                        return;
                     }
 
-                    if (params) {
-                         this.load(params, true);
-                         if (data.status) {
-                             this._notify(this._rawData, false, data.status, data.error_code);
-                         }
+                    // Filter by interval
+                    if (data.interval && parseInt(data.interval) !== parseInt(params.interval)) {
+                        console.log(`[WS] Interval mismatch: ${data.interval}m vs active ${params.interval}m`);
+                        return; 
                     }
-                }
-            });
 
-            this.socket.on('instruments_changed', (data) => {
-                console.log("[DataService] Instruments changed event:", data);
-                if (this._onInstrumentsChanged) {
-                    this._onInstrumentsChanged(data.instruments);
-                }
-            });
+                    // Filter by expiry track
+                    const incomingNext = !!data.next_expiry;
+                    const activeNext   = !!params.next_expiry;
+                    if (incomingNext !== activeNext) {
+                        console.log(`[WS] Expiry mismatch: Next=${incomingNext} vs active Next=${activeNext}`);
+                        return;
+                    }
 
-            // ── Rejoining client: a fetch is already in progress server-side ──
-            this.socket.on('data_fetching', (data) => {
-                console.log(`[DataService] Server: fetch in progress for ${data.symbol}`);
-                const loader = document.getElementById('loading');
-                if (loader) {
-                    loader.textContent = data.message || `Fetching latest data for ${data.symbol}\u2026`;
-                    loader.style.display = 'flex';
-                    loader.classList.add('waiting');
-                }
-            });
+                    console.log(`[WS] Update accepted for ${incomingSymbol} (${data.interval}m, next=${incomingNext}). Refreshing UI...`);
+                    this.load(params, true);
+                });
 
+                // ── holiday_detected: only react to the ACTIVELY watched symbol ──
+                this.socket.on('holiday_detected', (data) => {
+                    if (!data.symbol) return;
+                    const incoming = data.symbol.toUpperCase();
+                    if (incoming !== this._activeSymbol) return;
 
+                    console.warn(`[DataService] ${data.date} is a holiday/no-data. Fallback: ${data.fallback_date || 'client-side'}`);
+                    const loader = document.getElementById('loading');
+                    if (loader) {
+                        loader.style.display = 'none';
+                        loader.classList.remove('waiting');
+                    }
+                    this._notify([], true, "holiday", data.fallback_date || null);
+                });
 
-        } catch (e) {
-            console.error("[DataService] WS Init failed", e);
+                // ── data_fetching: background fetch progress indicator ──
+                this.socket.on('data_fetching', (data) => {
+                    if (!data.symbol) return;
+                    const incoming = data.symbol.toUpperCase();
+                    if (incoming !== this._activeSymbol) return;
+
+                    const loader = document.getElementById('loading');
+                    if (loader) {
+                        loader.textContent = data.message || `Fetching ${incoming}…`;
+                        loader.style.display = 'flex';
+                        loader.classList.add('waiting');
+                    }
+                });
+
+                this.socket.on('disconnect', () => {
+                    console.log('[DataService] WebSocket disconnected.');
+                });
+
+            } catch (e) {
+                console.error("[DataService] WS Connection failed", e);
+            }
         }
     }
 
+    /**
+     * stopLiveMode — called when user turns off the Live toggle.
+     * Leaves the live room on the server but keeps the socket alive
+     * so background data_updated events (for non-live requests) still work.
+     */
+    stopLiveMode(symbol) {
+        this._liveMode = false;
+        if (this.socket && this.socket.connected && symbol) {
+            console.log(`[DataService] Live OFF → leaving room: ${symbol}`);
+            this.socket.emit("leave_symbol", { symbol: symbol.toUpperCase() });
+        }
+    }
+
+    /**
+     * stopWebSocket — full teardown. Disconnects the socket entirely.
+     * Only call this when the user navigates away or the page is closed.
+     */
     stopWebSocket() {
+        this._activeSymbol = null;
+        this._liveMode = false;
         if (this.socket) {
             this.socket.disconnect();
             this.socket = null;

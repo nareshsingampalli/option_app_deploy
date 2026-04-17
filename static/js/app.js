@@ -24,11 +24,12 @@ window._timeSelector = timeSelector;
 window._symbolSelector = symbolSelector;
 
 // ── State ────────────────────────────────────────────────────────────────────
-let isLiveMode = false;
+let isLiveMode      = false;
 let refreshInterval = null;
-let currentRenderedSymbol = null; 
-let currentRenderedDate = null; 
+let currentRenderedSymbol    = null;
+let currentRenderedDate      = null;
 let currentReferenceSpotPrice = null;
+let _liveToggleBlocked = false; // true when market is closed/holiday — live toggle must stay off
 
 // ── Notification Helper ─────────────────────────────────────────────────────
 function showNotice(message, duration = 5000) {
@@ -61,18 +62,37 @@ dataService.subscribe((records, isInitial, status, errorCode) => {
         refreshBtn.classList.remove('btn-error-pulse');
     }
 
-    // 2. Handle Holiday Fallback — auto-turn off Live mode if fallback occured or server reports holiday
+    // 2. Handle Holiday / No-data — auto-fallback to previous trading day
     if (status === "holiday") {
+        // Only turn off live toggle if it was on
         if (isLiveMode) {
             console.log("[App] Holiday detected — disabling Live Mode.");
-            showNotice("Market is closed today (Holiday). Live mode disabled. Showing previous trading session.", 8000);
             isLiveMode = false;
             const liveToggle = document.getElementById('live-toggle');
             if (liveToggle) liveToggle.checked = false;
-            const datePicker = document.getElementById('date-picker');
-            if (datePicker) datePicker.disabled = false;
+        }
+
+        const datePicker = document.getElementById('date-picker');
+        if (datePicker) {
+            datePicker.disabled = false;
+
+            // Prefer server-provided fallback_date (already weekend-safe + pre-fetched)
+            // errorCode holds fallback_date passed from DataService._notify
+            if (errorCode) {
+                console.log(`[App] Using server fallback date: ${errorCode}`);
+                datePicker.value = errorCode;
+                showNotice(`Holiday / no data. Showing ${errorCode}.`, 6000);
+            } else {
+                // Client-side fallback: roll back 1 calendar day
+                const current = new Date(datePicker.value);
+                current.setDate(current.getDate() - 1);
+                datePicker.value = current.toLocaleDateString('en-CA');
+                showNotice("Market is closed today (Holiday). Showing previous trading session.", 8000);
+            }
+            fetchData();
         }
     }
+
 
     if (!records || records.length === 0) {
         console.warn("[App] No records received.");
@@ -178,17 +198,29 @@ dataService.subscribe((records, isInitial, status, errorCode) => {
 symbolSelector.onChange(async ({ exchange, symbol }) => {
     console.log(`[App] Market changed: ${exchange} - ${symbol}`);
     timeSelector.setExchange(exchange);
-    
+
+    // ── Track the actively watched symbol ─────────────────────────────────
+    // This ensures WebSocket data_updated events only fire for the new symbol.
+    dataService.setActiveSymbol(symbol);
+
     // Clear old state immediately so user doesn't see stale data
-    chartRenderer.clear ? chartRenderer.clear() : null; 
-    dataService.clear(); 
-    
-    // ── Handle Auto-Live Toggle on Exchange Switch ───────────────────────
-    // Logic removed: Let the user or server handle live mode state.
-    
-    // Always initialize WebSocket and join room to listen for background fetch updates (historical or live)
-    dataService.initWebSocket(exchange, symbol);
-    
+    chartRenderer.clear ? chartRenderer.clear() : null;
+    dataService.clear();
+
+    // Re-join the WS room for the new symbol (leaves old room automatically on server)
+    dataService.initWebSocket(symbol);
+
+    // If live mode was on for the previous symbol, cancel it —
+    // the user must re-enable live manually for the new symbol.
+    if (isLiveMode) {
+        console.log(`[App] Symbol switched while live — pausing live mode for new symbol.`);
+        isLiveMode = false;
+        const liveToggle = document.getElementById('live-toggle');
+        if (liveToggle) liveToggle.checked = false;
+        const datePicker = document.getElementById('date-picker');
+        if (datePicker) datePicker.disabled = false;
+    }
+
     updateIntervalAvailability();
     fetchData();
 });
@@ -236,20 +268,20 @@ function fetchData(silent = false) {
     }
 
     if (!silent) {
-        // Show pulse states in header and sidebars
+        // Show pulse states only for initial/forced loads
         const spotEl = document.getElementById('spot-price-display');
         if (spotEl) {
-            spotEl.innerHTML = `<strong>Spot Price:</strong> <span class="pulse-text" style="width: 80px; height: 18px; vertical-align: middle;"></span>`;
+            spotEl.innerHTML = `<strong>Spot Price:</strong> <span class="pulse-text" style="width: 80px; height: 18px; vertical-align: middle; display: inline-block;"></span>`;
         }
         
         const expiryEl = document.getElementById('expiry-display');
         if (expiryEl) {
-            expiryEl.innerHTML = `<strong>Expiry:</strong> <span class="pulse-text" style="width: 100px; height: 18px; vertical-align: middle;"></span>`;
+            expiryEl.innerHTML = `<strong>Expiry:</strong> <span class="pulse-text" style="width: 100px; height: 18px; vertical-align: middle; display: inline-block;"></span>`;
         }
 
         const lastUpdatedEl = document.getElementById('last-updated-display');
         if (lastUpdatedEl) {
-            lastUpdatedEl.innerHTML = `<span class="pulse-text" style="width: 180px; height: 14px;"></span>`;
+            lastUpdatedEl.innerHTML = `<span class="pulse-text" style="width: 180px; height: 14px; display: inline-block;"></span>`;
         }
 
         chartRenderer.clear ? chartRenderer.clear() : null;
@@ -296,9 +328,39 @@ datePicker.max = todayStr;
 datePicker.value = initialDateStr;
 
 datePicker.addEventListener('change', () => {
+    const now = new Date();
+    const istToday = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" })).toLocaleDateString('en-CA');
+    const selectedDate = datePicker.value;
+
+    // ── Expired / Historical date selected ────────────────────────────────
+    // If the user picks any date that is not today, turn off live mode and
+    // let the backend route automatically:
+    //   - ExpiredCandleFetcher  (NSE: date ≤ last expired expiry)
+    //   - HistoricalCandleFetcher (everything else past)
+    if (selectedDate !== istToday && isLiveMode) {
+        console.log(`[App] Date changed to ${selectedDate} — disabling live mode.`);
+        isLiveMode = false;
+        liveToggle.checked  = false;
+        datePicker.disabled = false;
+        // Notify the user when the date looks like an expired contract window
+        showNotice(`Historical mode: fetching data for ${selectedDate}`, 4000);
+        // stopLiveMode leaves the WS room cleanly
+        dataService.stopLiveMode(symbolSelector.symbol);
+    }
+
+    // Default slider to end-of-day for any non-today date
+    if (selectedDate !== istToday) {
+        const slider = document.getElementById('time-slider');
+        if (slider) {
+            slider.value = slider.max;
+            if (window._timeSelector) window._timeSelector.updateDisplay();
+        }
+    }
+
     updateIntervalAvailability();
     fetchData();
 });
+
 
 // ── Time Slider Debounce Logic ──────────────────────────────────────────────
 let sliderDebounceTimer = null;
@@ -308,11 +370,10 @@ document.getElementById('time-slider').addEventListener('input', () => {
     // Clear existing timer
     if (sliderDebounceTimer) clearTimeout(sliderDebounceTimer);
     
-    // Wait for 1 second of stillness before fetching
+    // Wait for 200ms of stillness before fetching (MUCH snappier)
     sliderDebounceTimer = setTimeout(() => {
-        console.log(`[App] Slider stopped at ${timeSelector.time}. Fetching time-slice...`);
-        fetchData();
-    }, 1000);
+        fetchData(true); // silent = true to prevent clearing/skeletons during slide
+    }, 200);
 });
 
 // Remove the old 'change' listener since we now use debounced 'input'
@@ -320,12 +381,30 @@ document.getElementById('time-slider').addEventListener('input', () => {
 
 document.getElementById('interval-select').addEventListener('change', () => {
     const exchange = symbolSelector.exchange || 'NSE';
+    const symbol   = symbolSelector.symbol || 'NIFTY';
     const interval = parseInt(document.getElementById('interval-select').value);
+    
     timeSelector.reconfigure(exchange, interval);
+
+    // If live mode is enabled, we must re-join the symbol room so the 
+    // server-side scheduler knows we've switched our interval interest.
+    if (isLiveMode) {
+        console.log(`[App] Interval changed while Live — notifying scheduler of ${interval}m interest.`);
+        dataService.initWebSocket(symbol);
+    }
+    
     fetchData();
 });
 
 nextExpiryChk.addEventListener('change', () => {
+    const symbol = symbolSelector.symbol || 'NIFTY';
+    
+    // Notify scheduler of new expiry track interest if alive
+    if (isLiveMode) {
+        console.log(`[App] Expiry track changed while Live — notifying scheduler.`);
+        dataService.initWebSocket(symbol);
+    }
+
     dataService.clear();
     fetchData();
 });
@@ -333,27 +412,92 @@ nextExpiryChk.addEventListener('change', () => {
 
 
 liveToggle.addEventListener('change', async () => {
-    isLiveMode = liveToggle.checked;
     const exchange = symbolSelector.exchange || 'NSE';
+    const symbol   = symbolSelector.symbol   || 'NIFTY';
 
-    if (isLiveMode) {
-        const todayStr = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD
+    if (liveToggle.checked) {
+        // ── LIVE ON: probe spot price first to detect holidays ─────────────
+        console.log(`[App] Live toggle ON — probing spot for ${symbol} (${exchange})…`);
+        showNotice(`Checking market status for ${symbol}…`, 4000);
+
+        let probe = { is_holiday: false, spot_price: null, reason: '' };
+        try {
+            probe = await apiService.spotProbe(exchange, symbol);
+        } catch (e) {
+            console.warn('[App] Spot probe failed, proceeding cautiously.', e);
+        }
+
+        if (probe.reason === 'market_closed') {
+            // Market hasn't opened yet — refuse live mode, use historical
+            console.log('[App] Market not open yet. Blocking live mode.');
+            liveToggle.checked = false;
+            isLiveMode = false;
+            showNotice('Market is not open yet. Showing historical data.', 7000);
+            datePicker.disabled = false;
+            return;
+        }
+
+        if (probe.is_holiday) {
+            // Market hours but NO data → this is a holiday
+            console.log('[App] Holiday detected via spot probe. Switching to historical.');
+            liveToggle.checked = false;
+            isLiveMode = false;
+            datePicker.disabled = false;
+
+            // Roll date picker back to previous trading day
+            const datePart = datePicker.value;
+            const prev = new Date(datePart);
+            prev.setDate(prev.getDate() - 1);
+            // Skip weekends
+            while (prev.getDay() === 0 || prev.getDay() === 6) prev.setDate(prev.getDate() - 1);
+            datePicker.value = prev.toLocaleDateString('en-CA');
+
+            showNotice(`Today is a holiday/no-data day. Showing ${datePicker.value}.`, 8000);
+            fetchData();
+            return;
+        }
+
+        // ── Market is open AND data exists → go live ──────────────────────
+        isLiveMode = true;
+        const todayStr = new Date().toLocaleDateString('en-CA');
         datePicker.value = todayStr;
         datePicker.disabled = true;
-        
-        // Auto-reset slider to the end when turning Live Mode back ON
+
+        // Auto-reset slider to the end (current time)
         const slider = document.getElementById('time-slider');
         if (slider) {
             slider.value = slider.max;
             timeSelector.updateDisplay();
         }
 
-        dataService.initWebSocket(symbolSelector.exchange, symbolSelector.symbol);
+        // Track active symbol for WS filtering, then join room
+        dataService.setActiveSymbol(symbol);
+        dataService.initWebSocket(symbol);
+
+        console.log(`[App] Live mode ON for ${symbol}. Spot confirmed: ${probe.spot_price}`);
+        showNotice(`Live mode ON — ${symbol} @ ${probe.spot_price || '…'}`, 4000);
+
+        dataService.load(window.buildParams());
         fetchData();
+
     } else {
+        // ── LIVE OFF: stop live room subscription ─────────────────────────
+        console.log('[App] Live toggle OFF — stopping live mode.');
+        isLiveMode = false;
         datePicker.disabled = false;
-        // Keep socket open to hear about background historical fetches
+
+        // Auto-reset slider to the end for historical analysis
+        const slider = document.getElementById('time-slider');
+        if (slider) {
+            slider.value = slider.max;
+            timeSelector.updateDisplay();
+        }
+
+        // Leave the WS room so the server stops pushing to us,
+        // but keep the socket alive for background data_updated events.
+        dataService.stopLiveMode(symbol);
     }
+
 });
 
 document.getElementById('update-charts-btn').addEventListener('click', fetchData);
@@ -483,12 +627,75 @@ document.getElementById('loading').style.display = 'none';
 
 (async () => {
     updateIntervalAvailability();
-    console.log(`[App] App initialized. Fetching initial data...`);
-    dataService.initWebSocket(symbolSelector.exchange, symbolSelector.symbol);
-    fetchData();
+
+    const initialSymbol   = symbolSelector.symbol   || 'NIFTY';
+    const initialExchange = symbolSelector.exchange  || 'NSE';
+    console.log(`[App] Initializing dashboard layout for ${initialSymbol} (${initialExchange})...`);
+
+    // ── Step 1: Pre-market check ─────────────────────────────────────────
+    // Ask the server what date/mode to use before we start fetching.
+    // This handles: pre-market, post-market, weekends, and holiday chains.
+    try {
+        const preStatus = await apiService.getPreMarketStatus(initialExchange);
+        console.log('[App] Pre-market status:', preStatus);
+
+        if (preStatus.use_historical && preStatus.date) {
+            // Market is closed / pre-market / holiday
+            // → set date picker to the advised date, keep live toggle OFF
+            datePicker.value    = preStatus.date;
+            liveToggle.checked  = false;
+            liveToggle.disabled = false; // still allow user to try when they think market opens
+            isLiveMode          = false;
+
+            // Reconfigure slider AFTER setting the date — this recalculates
+            // slider.max with isToday=false so 15:30 becomes the correct max.
+            const exchange = symbolSelector.exchange || 'NSE';
+            const interval = parseInt(document.getElementById('interval-select').value) || 15;
+            timeSelector.reconfigure(exchange, interval);
+            // reconfigure() already snaps slider.value = slider.max (15:30),
+            // but call updateDisplay() explicitly to ensure label is refreshed.
+            timeSelector.updateDisplay();
+
+
+            const msgMap = {
+                pre_market:  `Market opens later. Showing ${preStatus.date}.`,
+                after_close: `Market closed. Showing ${preStatus.date}.`,
+                weekend:     `Weekend — showing last session (${preStatus.date}).`,
+            };
+            const msg = msgMap[preStatus.reason] || `Showing ${preStatus.date}.`;
+            showNotice(msg, 7000);
+        }
+        // If use_historical=false the market is OPEN — normal flow below
+    } catch (e) {
+        console.warn('[App] Pre-market status check failed, using defaults.', e);
+    }
+
+    // ── Step 2: Track active symbol for WS filtering ──────────────────────
+    dataService.setActiveSymbol(initialSymbol);
+
+    // ── Step 3: Init WebSocket (always — needed for background fetch events) ──
+    // The socket is kept alive; the active symbol filter in DataService ensures
+    // only updates for the current symbol trigger re-renders.
+    try {
+        // 3. Initialize WebSocket room join FIRST (so we don't miss bg signals)
+        dataService.initWebSocket(initialSymbol);
+
+        // 4. Then trigger the initial data fetch
+        fetchData();
+    } catch (e) {
+        console.error("[App] Socket initialization failed:", e);
+    }
 })();
 
-// ── Auto-Open Background Timer ──────────────────────────────────────────────
-setInterval(async () => {
+// ── Background Housekeeping ──────────────────────────────────────────────
+const housekeepingTask = setInterval(() => {
     updateIntervalAvailability();
+
+    // Stop the task after 10:30 AM IST as all intervals will be unlocked by then.
+    const now = new Date();
+    const ist = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+    if (ist.getHours() > 10 || (ist.getHours() === 10 && ist.getMinutes() >= 30)) {
+        console.log("[App] Housekeeping cycle complete for today. Stopping timer.");
+        clearInterval(housekeepingTask);
+    }
 }, 60000);

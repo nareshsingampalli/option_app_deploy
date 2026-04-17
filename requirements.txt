@@ -9,4 +9,5 @@ upstox-python-sdk
 scipy
 numpy
 pytz
+redis
 sentry-sdk[flask]

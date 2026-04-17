@@ -141,10 +141,28 @@ def get_last_trading_day(dt=None):
         dt = ist_now()
     return dt - timedelta(days=1)
 
+def get_prev_trading_day(date_str: str = None) -> str:
+    """
+    Returns the previous weekday (Mon–Fri) before the given date string (YYYY-MM-DD).
+    Skips Saturday and Sunday automatically.
+    Exchange holidays are NOT hardcoded — they are discovered at runtime via
+    empty API responses, which trigger another rollback automatically.
+    """
+    from datetime import datetime, timedelta
+    if date_str:
+        dt = datetime.strptime(date_str, "%Y-%m-%d")
+    else:
+        dt = ist_now().replace(tzinfo=None)
+    dt -= timedelta(days=1)
+    while dt.weekday() >= 5:   # 5 = Saturday, 6 = Sunday
+        dt -= timedelta(days=1)
+    return dt.strftime("%Y-%m-%d")
+
 def get_next_trading_day(dt=None):
     """Returns the calendar day immediately following dt."""
     from datetime import timedelta
     if dt is None:
         dt = ist_now()
     return (dt + timedelta(days=1)).replace(hour=9, minute=0, second=0, microsecond=0)
+
 

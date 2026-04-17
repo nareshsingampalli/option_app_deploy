@@ -87,82 +87,74 @@ class LiveHandler(StrategyHandler):
 
 
 class TodayGuardHandler(StrategyHandler):
+    """
+    Routes today's requests through the intraday-capable pipeline, but ONLY
+    when live_mode is True (i.e. the user explicitly wants live broker data).
+
+    When live_mode is False and date == today (e.g. user toggled Live OFF or
+    viewing today historically after market close), we fall through to
+    HistoricalHandler so cached / historical-API data is served without any
+    live broker call.
+    """
     def handle(self, ctx, storage):
-        # Allow requests if it's today BUT the market is closed (Intraday Recovery Mode)
-        if ctx.target_date == ctx.today_str and not ctx.live_mode:
-            from core.utils import ist_now
-            from core.config import SCHEDULER_HOURS
-            
-            # Check if market is actually open right now for this exchange
-            cfg = SCHEDULER_HOURS.get(ctx.exchange, SCHEDULER_HOURS["NSE"])
-            now_t = ist_now().time()
-            start_t = datetime.strptime(cfg["start"], "%H:%M:%S").time()
-            end_t = datetime.strptime(cfg["end"], "%H:%M:%S").time()
-            
-            def s(t): return t.hour * 3600 + t.minute * 60 + t.second
-            is_open = s(start_t) <= s(now_t) <= s(end_t)
-            
-            if is_open:
-                print(f"[StrategyChain] BLOCKED: {ctx.target_date} is today and market is OPEN. Enable Live mode.")
-                return None
-            else:
-                print(f"[StrategyChain] INTRADAY RECOVERY: {ctx.target_date} is today but market is CLOSED. Accessing intraday fetcher.")
-                # Force onto the LivePipeline (which uses the high-res Intraday fetcher)
-                fetcher = CandleFetcherFactory.create(ctx.target_date, live_mode=True, interval=ctx.interval)
-                if ctx.exchange == "MCX":
-                    from strategies.mcx import MCXLivePipeline
-                    return MCXLivePipeline(fetcher, MCXInstrumentResolver(), storage, symbol=ctx.symbol, expiry_offset=ctx.expiry_offset)
-                from strategies.nse import NSELivePipeline
-                return NSELivePipeline(fetcher, NSEActiveResolver(), storage, symbol=ctx.symbol, expiry_offset=ctx.expiry_offset)
-            
+        # RULE: If the user is viewing TODAY's date, we MUST use the Intraday-capable
+        # pipeline, regardless of whether the LIVE toggle is on or off. 
+        # Why? Because the Historical API (/historical) does not contain candles
+        # for the current date until after the midnight maintenance sync.
+        if ctx.target_date == ctx.today_str:
+            print(f"[StrategyChain] TODAY -> {ctx.exchange} (Forced Intraday Pipeline for current date)")
+            fetcher = CandleFetcherFactory.create(ctx.target_date, live_mode=True, interval=ctx.interval)
+
+            if ctx.exchange == "MCX":
+                from strategies.mcx import MCXLivePipeline
+                return MCXLivePipeline(fetcher, MCXInstrumentResolver(), storage, symbol=ctx.symbol, expiry_offset=ctx.expiry_offset)
+            if ctx.exchange == "BSE":
+                from strategies.bse import BSELivePipeline
+                return BSELivePipeline(fetcher, BSEActiveResolver(), storage, symbol=ctx.symbol, expiry_offset=ctx.expiry_offset)
+            from strategies.nse import NSELivePipeline
+            return NSELivePipeline(fetcher, NSEActiveResolver(), storage, symbol=ctx.symbol, expiry_offset=ctx.expiry_offset)
+
         return self._forward(ctx, storage)
 
 
+
+
 class ExpiredHandler(StrategyHandler):
-    """NSE-only: routes to ExpiredPipeline when date <= last_expired_dt."""
+    """
+    NSE-only: routes to ExpiredPipeline ONLY when the selected date is
+    explicitly within the expired bucket (target_date <= last_expired_dt
+    returned by the Upstox expired-instruments API).
+
+    Rule:
+      - target_date <= last_expired_dt  → ExpiredCandleFetcher
+      - anything else                   → falls through to HistoricalCandleFetcher
+
+    No fallback resolution against the active series is performed.
+    Holidays are handled naturally by HistoricalCandleFetcher: Upstox's
+    historical API returns the nearest available trading day in the requested
+    date range, so no explicit holiday rollback is needed here.
+    """
     def handle(self, ctx, storage):
         if ctx.exchange != "NSE":
             return self._forward(ctx, storage)
-            
+
         target_dt = datetime.strptime(ctx.target_date, "%Y-%m-%d")
-        today_dt  = datetime.strptime(ctx.today_str, "%Y-%m-%d")
-        is_expired = False
-
-        # ── Primary: Upstox expired API ───────────────────────────────────────
-        if ctx.last_expired_dt is not None and target_dt <= ctx.last_expired_dt:
-            is_expired = True
-            print(f"[StrategyChain] EXPIRED ({ctx.target_date} <= {ctx.last_expired_dt.date()})")
-
-        # ── Fallback: resolve the series expiry FOR target_date itself ────────
-        # Always runs when not yet confirmed expired (handles Upstox API lag and
-        # all NSE instruments: NIFTY Tue, BANKNIFTY Wed, MIDCPNIFTY Mon, etc.)
-        # Logic: if the expiry of whatever series was active on target_date is
-        # strictly before today, those contracts are now in the expired bucket.
-        if not is_expired and target_dt < today_dt:
-            try:
-                from resolvers.nse_resolver import NSEActiveResolver
-                _, exp_dt, _ = NSEActiveResolver().resolve(
-                    ctx.symbol, 0, ctx.target_date, num_strikes=0
-                )
-                if exp_dt and exp_dt.date() < today_dt.date():
-                    is_expired = True
-                    print(
-                        f"[StrategyChain] EXPIRED (series expiry {exp_dt.date()} "
-                        f"< today {today_dt.date()} — covers Upstox API lag)"
-                    )
-            except Exception as e:
-                print(f"[StrategyChain] Expiry fallback check failed: {e}")
+        is_expired = (
+            ctx.last_expired_dt is not None
+            and target_dt <= ctx.last_expired_dt
+        )
 
         if is_expired:
-            # By passing target_dt as last_expired_dt, we force the Factory to instantiate ExpiredCandleFetcher
+            print(f"[StrategyChain] EXPIRED ({ctx.target_date} <= {ctx.last_expired_dt.date()}) → ExpiredCandleFetcher")
             fetcher = CandleFetcherFactory.create(
                 ctx.target_date, last_expired_dt=target_dt, interval=ctx.interval
             )
             from strategies.nse import NSEExpiredPipeline
             from resolvers.nse_resolver import NSEExpiredResolver
             return NSEExpiredPipeline(fetcher, NSEExpiredResolver(), storage, symbol=ctx.symbol, expiry_offset=ctx.expiry_offset)
-            
+
         return self._forward(ctx, storage)
+
 
 
 class HistoricalHandler(StrategyHandler):
