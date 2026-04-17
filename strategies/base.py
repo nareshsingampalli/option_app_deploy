@@ -149,16 +149,13 @@ class MarketDataPipeline(ABC):
     def _process_all(
         self, instruments: list[Instrument], spot_map: dict, filter_date: str
     ) -> tuple[list[dict], bool]:
-        import eventlet
-        from eventlet import GreenPool
+        from concurrent.futures import ThreadPoolExecutor, as_completed
         
         rows: list[dict] = []
         any_fallback = getattr(self.fetcher, "used_fallback", False)
 
         def process_one(inst: Instrument):
             print(f"[Pipeline] Processing {inst.symbol}...")
-            # Yield to the hub before starting a new heavy task
-            eventlet.sleep(0)
             try:
                 df = self.fetcher.get_candles(inst.key, filter_date, expiry_dt=inst.expiry)
                 if df is None or df.empty:
@@ -178,14 +175,13 @@ class MarketDataPipeline(ABC):
                 print(f"[Pipeline] Error on {inst.symbol}: {e}")
                 return [], False
 
-        # Use GreenPool for cooperative multitasking (yields during I/O)
-        pool = GreenPool(size=10)
-        for result_rows, fallback in pool.imap(process_one, instruments):
-            if fallback:
-                any_fallback = True
-            rows.extend(result_rows)
-            # Yield control back to hub after every instrument processed
-            eventlet.sleep(0)
+        with ThreadPoolExecutor(max_workers=10) as pool:
+            future_to_inst = {pool.submit(process_one, inst): inst for inst in instruments}
+            for future in as_completed(future_to_inst):
+                result_rows, fallback = future.result()
+                if fallback:
+                    any_fallback = True
+                rows.extend(result_rows)
 
         return rows, any_fallback
 
@@ -203,10 +199,7 @@ class MarketDataPipeline(ABC):
         expiry_with_time = inst.expiry.replace(hour=self.market_end.hour, minute=self.market_end.minute)
         iv_list: list[float] = []
 
-        import eventlet
         for idx, row in df.iterrows():
-            # Yield every candle iteration to prevent starving the hub
-            eventlet.sleep(0)
             spot_p = spot_map.get(idx)
             if spot_p:
                 exp_t = expiry_with_time

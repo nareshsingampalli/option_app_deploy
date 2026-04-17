@@ -39,7 +39,8 @@ def implied_volatility(
         diff = p - price
         if abs(diff) < tol:
             return sigma
-        d1   = (np.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
+        # d1 and vega for Newton-Raphson
+        d1 = (np.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
         vega = S * norm.pdf(d1) * np.sqrt(T)
         if vega < tol:
             break

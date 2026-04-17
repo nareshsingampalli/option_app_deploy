@@ -26,6 +26,10 @@ class SymbolSelector {
 
     constructor(containerId) {
         this._container = document.getElementById(containerId);
+        if (!this._container) {
+            console.error(`[SymbolSelector] Container #${containerId} not found.`);
+            return;
+        }
         this._exchange = 'NSE';
         this._symbol = 'NIFTY';
         this._observers = [];

@@ -24,7 +24,7 @@ import numpy as np
 import pandas as pd
 import requests
 
-from core.config import MCX_INSTRUMENT_URL, DEFAULT_NUM_STRIKES
+from core.config import MCX_INSTRUMENT_URL, DEFAULT_NUM_STRIKES, MCX_NUM_STRIKES
 from core.exceptions import InstrumentResolutionError
 from resolvers.base import Instrument, InstrumentResolver
 
@@ -40,7 +40,7 @@ class MCXInstrumentResolver(InstrumentResolver):
         symbol:         str,
         spot_price:     float,
         reference_date: str,
-        num_strikes:    int = DEFAULT_NUM_STRIKES,
+        num_strikes:    int = MCX_NUM_STRIKES,
         expiry_offset:  int = 0,
     ) -> tuple[list[Instrument], Optional[datetime], bool]:
         commodity = symbol.upper()
@@ -141,36 +141,47 @@ class MCXInstrumentResolver(InstrumentResolver):
         num_strikes:    int,
         df_all:         pd.DataFrame,
     ) -> list[Instrument]:
-        month = target_expiry.strftime("%b").upper()
-        year  = target_expiry.strftime("%y")
+        # Search up to 3 months ahead for valid options (MCX roll rule)
+        for offset in range(3):
+            search_dt = target_expiry + pd.DateOffset(months=offset)
+            month = search_dt.strftime("%b").upper()
+            year  = search_dt.strftime("%y")
 
-        # Matches: "CRUDEOIL 6600 CE 17 MAR 26" as requested
-        precise_pattern = rf"^{commodity} \d+ (?:CE|PE) \d{{1,2}} {month} {year}$"
+            precise_pattern = rf"^{commodity} \d+ (?:CE|PE) \d{{1,2}} {month} {year}$"
+            opts = df_all[
+                df_all["instrument_type"].isin(["CE", "PE"]) &
+                df_all["trading_symbol"].str.contains(precise_pattern, regex=True)
+            ].copy()
 
-        opts = df_all[
-            df_all["instrument_type"].isin(["CE", "PE"]) &
-            df_all["trading_symbol"].str.contains(precise_pattern, regex=True)
-        ].copy()
-
-        # Extract expiry date from symbol string as requested: "NATURALGAS 390 PE 24 MAR 26"
-        def extract_expiry_from_sym(sym_str):
-            m = re.search(rf"(\d{{1,2}}) {month} {year}$", sym_str)
-            if m:
-                day = m.group(1)
-                return pd.to_datetime(f"{day} {month} {year}", format="%d %b %y").normalize()
-            return target_expiry # Fallback
-
-        opts["expiry_dt"] = opts["trading_symbol"].apply(extract_expiry_from_sym)
-        opts["strike"] = opts["strike_price"].astype(float)
-
-        if opts.empty:
-            print(f"[MCXResolver] No options matched pattern for {month} {year}")
+            if not opts.empty:
+                print(f"[MCXResolver] Found options in {month} {year} (offset={offset})")
+                
+                # Extract expiry date from symbol string: "NATURALGAS 390 PE 24 MAR 26"
+                def extract_expiry_from_sym(sym_str):
+                    m = re.search(rf"(\d{{1,2}}) {month} {year}$", sym_str)
+                    if m:
+                        day = m.group(1)
+                        return pd.to_datetime(f"{day} {month} {year}", format="%d %b %y").normalize()
+                    return search_dt # Fallback
+                
+                opts["expiry_dt"] = opts["trading_symbol"].apply(extract_expiry_from_sym)
+                opts["strike"] = opts["strike_price"].astype(float)
+                break
+        
+        if commodity in ["GOLD", "SILVER"]:
+            print(f"[MCXResolver] Spot-only mode for {commodity}. Disabling resolution.")
             return []
 
-        # Find ATM and target strikes dynamically
+        # Find ATM and target strikes dynamically using the actual strike step
         strikes = sorted(opts["strike"].unique())
         if not strikes:
             return []
+            
+        # DYNAMIC STEP: Instead of hardcoded constant, detect it from data
+        if len(strikes) > 1:
+            detected_step = min([strikes[i+1] - strikes[i] for i in range(len(strikes)-1)])
+            print(f"[MCXResolver] Detected strike step for {commodity}: {detected_step}")
+        
         atm_idx = int(np.abs(np.array(strikes) - spot_price).argmin())
         target_strikes = strikes[max(0, atm_idx - num_strikes): atm_idx + num_strikes + 1]
         print(f"[MCXResolver] ATM={strikes[atm_idx]}, strikes={target_strikes}")

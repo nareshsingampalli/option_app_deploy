@@ -66,8 +66,8 @@ class DataService {
         if (updatedEl) updatedEl.textContent = '';
     }
 
-    async load(params, silent = false) {
-        if (this._isLoading) {
+    async load(params, silent = false, force = false) {
+        if (this._isLoading && !force) {
             console.log("[DataService] Load already in progress, skipping...");
             return;
         }
@@ -131,7 +131,14 @@ class DataService {
             // Auto-sync UI live toggle if present in meta
             const liveToggle = document.getElementById('live-toggle');
             if (liveToggle && meta.live !== undefined) {
+                const wasChecked = liveToggle.checked;
                 liveToggle.checked = (meta.live === true || meta.live === "true");
+                
+                // If it transitioned from OFF to ON, trigger the app's live mode logic
+                if (!wasChecked && liveToggle.checked) {
+                    console.log("[DataService] Auto-enabling UI Live Toggle via metadata hint.");
+                    liveToggle.dispatchEvent(new Event('change'));
+                }
             }
 
             this._updateMeta(meta);
@@ -187,8 +194,15 @@ class DataService {
 
         // If socket exists and is connected, just switch the room
         if (this.socket && this.socket.connected) {
-            console.log(`[DataService] Switching WebSocket room: ${this._activeSymbol} → ${upperSym} (int: ${interval}m, next: ${nextExp})`);
-            this.socket.emit("join_symbol", { symbol: upperSym, interval: interval, next_expiry: nextExp });
+            const exchange = window._symbolSelector ? window._symbolSelector.exchange : 'NSE';
+            console.log(`[DataService] Switching WebSocket room: ${this._activeSymbol} (int: ${interval}m, last: ${this._lastFetchedAt})`);
+            this.socket.emit("join_symbol", { 
+                symbol: upperSym, 
+                interval: interval, 
+                next_expiry: nextExp,
+                last_updated: this._lastFetchedAt,
+                exchange: exchange
+            });
             return;
         }
 
@@ -199,19 +213,22 @@ class DataService {
                 this.socket = io({
                     reconnection: true,
                     reconnectionAttempts: 5,
-                    transports: ['websocket', 'polling']
+                    transports: ['polling']
                 });
 
                 this.socket.on('connect', () => {
                     const currentInterval = parseInt(document.getElementById('interval-select').value) || 15;
                     const isNext = document.getElementById('next-expiry-chk')?.checked || false;
-                    console.log(`[DataService] WS connected. Joining room: ${this._activeSymbol} (int: ${currentInterval}m, next: ${isNext})`);
+                    const exchange = window._symbolSelector ? window._symbolSelector.exchange : 'NSE';
+                    console.log(`[DataService] WS connected. Joining room: ${this._activeSymbol} (int: ${currentInterval}m, last: ${this._lastFetchedAt})`);
                     this.socket.emit("join_symbol", { 
                         symbol: this._activeSymbol, 
                         interval: currentInterval,
-                        next_expiry: isNext
+                        next_expiry: isNext,
+                        last_updated: this._lastFetchedAt,
+                        exchange: exchange
                     });
-                });
+               });
 
                 // ── data_updated: only react to the ACTIVELY watched symbol & interval ──
                 this.socket.on('data_updated', (data) => {
@@ -245,7 +262,7 @@ class DataService {
                     }
 
                     console.log(`[WS] Update accepted for ${incomingSymbol} (${incomingInterval}m, next=${incomingNext}). Refreshing UI...`);
-                    this.load(params, true);
+                    this.load(params, true, true); // silent=true, force=true
                 });
 
                 // ── holiday_detected: only react to the ACTIVELY watched symbol ──
@@ -274,6 +291,18 @@ class DataService {
                         loader.textContent = data.message || `Fetching ${incoming}…`;
                         loader.style.display = 'flex';
                         loader.classList.add('waiting');
+                    }
+                });
+
+                this.socket.on('error', (data) => {
+                    console.error('[DataService] WS Error:', data);
+                    const loader = document.getElementById('loading');
+                    if (loader) {
+                        loader.style.display = 'none';
+                        loader.classList.remove('waiting');
+                    }
+                    if (window.showNotice) {
+                        window.showNotice(data.message || 'Error fetching data.');
                     }
                 });
 
@@ -352,6 +381,7 @@ class DataService {
             }
         }
         if (updatedEl && meta.fetched_at) {
+            this._lastFetchedAt = meta.fetched_at;
             updatedEl.textContent = `Last Updated: ${new Date(meta.fetched_at).toLocaleTimeString()}`;
         }
     }

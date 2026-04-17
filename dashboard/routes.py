@@ -243,9 +243,8 @@ def pre_market_status():
         from core.config import BSE_INDEX_KEYS
         spot_key = BSE_INDEX_KEYS.get("SENSEX", "BSE_INDEX|SENSEX")
 
-    # Probe up to 5 days back to skip holidays
-    # Probe up to 30 days back to skip holidays
-    probe_range = 30
+    # Probe up to 7 days back to skip weekends/holidays
+    probe_range = 7
     for i in range(probe_range):
         try:
             # 1. Primary: Try Historical (for most past dates)
@@ -421,6 +420,7 @@ def get_option_data():
 
                 except Exception as e:
                     print(f"[API-BG] Error: {e}")
+                    socketio.emit("error", {"symbol": _symbol, "message": f"Data process error: {str(e)}"}, room=_symbol)
                 finally:
                     print(f"[API-BG] Task finished for {_symbol} in {time.time() - t_bg:.2f}s")
                     try: lock.release()
@@ -439,6 +439,11 @@ def get_option_data():
         meta = {}
         if os.path.exists(meta_path):
             with open(meta_path) as f: meta = json.load(f)
+        
+        # Inject live status for today's session during market hours
+        if is_today and market_currently_open:
+            meta["live"] = True
+            meta["is_today"] = True
         
         res = jsonify({"status": "success", "data": df.to_dict(orient="records"), "meta": meta, "date": date_str})
         print(f"[API] Response for {symbol}: 200 OK | ProcessTime: {time.time() - t_req:.2f}s")
@@ -462,13 +467,45 @@ def handle_join_symbol(data):
             "next_expiry": next_expiry
         }
 
-    # Leave all existing symbol rooms before joining the new one
+    # Notify scheduler to wake up and check the new active interest
+    from dashboard.scheduler import wake_scheduler
+    wake_scheduler()
+    # Leave existing room ONLY if it's different from the new requested symbol
     for r in rooms(sid):
-        if r != sid:
+        if r != sid and r != symbol:
             leave_room(r)
             print(f"[WS] Client {sid} left room: {r}")
-    join_room(symbol)
-    print(f"[WS] Client {sid} joined room: {symbol} (interval: {interval}m, next: {next_expiry})")
+    
+    if symbol not in rooms(sid):
+        join_room(symbol)
+        print(f"[WS] Client {sid} joined room: {symbol} (interval: {interval}m, next: {next_expiry})")
+    else:
+        print(f"[WS] Client {sid} already in room: {symbol}. Syncing context.")
+    # ── Stale Data Handshake ──────────────────────────────────────────────────
+    # Check if the server already has data newer than what the client possesses.
+    last_updated = data.get("last_updated")
+    exchange = data.get("exchange", "NSE").upper()
+
+    try:
+        from core.utils import ist_now
+        today = ist_now().strftime("%Y-%m-%d")
+        prefix = "mcx" if exchange == "MCX" else "option"
+        dir_name = "nse_data" if prefix == "option" else "mcx_data"
+        suffix = ("_next" if next_expiry else "") + f"_int{interval}"
+        meta_path = os.path.join(os.getcwd(), dir_name, f"{prefix}_{symbol.lower()}_meta_{today}{suffix}.json")
+
+        if os.path.exists(meta_path):
+            import json
+            with open(meta_path) as f:
+                meta = json.load(f)
+                server_fetched_at = meta.get("fetched_at")
+                
+                # Logic: Trigger update if client has NO data, or client data is OLDER than server
+                if not last_updated or (server_fetched_at and server_fetched_at > last_updated):
+                    print(f"[WS] Client {sid} needs sync for {symbol} ({last_updated} < {server_fetched_at}). Triggering update.")
+                    emit("data_updated", {"symbol": symbol, "interval": interval, "next_expiry": next_expiry}, room=sid)
+    except Exception as e:
+        print(f"[WS] Stale check error for {symbol}: {e}")
 
 
 @socketio.on("leave_symbol")

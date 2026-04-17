@@ -19,7 +19,7 @@
 
     <div class="app-container">
 
-        <!-- ── Sidebar Controls ─────────────────────────────── -->
+        <!-- -- Sidebar Controls ------------------------------- -->
         <div class="sidebar">
 
             <!-- Exchange + Symbol selector -->
@@ -106,7 +106,7 @@
                             <span>Next</span>
                             <input type="checkbox" id="next-expiry-chk" style="margin: 0; cursor: pointer;">
                         </label>
-                        <!-- </div> -->
+                    </div>
                 </h2>
                 <div style="border-bottom: 2px solid #eee; margin-top: 5px; margin-bottom: 10px;"></div>
                 <div class="btn-group" id="selector-toggles">
@@ -147,15 +147,22 @@
                 Refresh Token
             </button>
         </div>
-        <!-- ── End Sidebar ──────────────────────────────────── -->
+        <!-- -- End Sidebar ------------------------------------ -->
 
-        <!-- ── Main Chart Area ──────────────────────────────── -->
+        <!-- -- Main Chart Area -------------------------------- -->
         <div class="main-content" id="charts-area">
             <!-- Charts injected by ChartRenderer.js -->
         </div>
     </div>
 
-    <!-- ── Decoupled JS — load order matters ─────────────────────────────── -->
+    <!-- -- Decoupled JS - load order matters ------------------------------- -->
+    <script>
+        // Set date immediately to avoid blank picker during component load
+        (function() {
+            const dp = document.getElementById('date-picker');
+            if (dp) dp.value = new Date().toLocaleDateString('en-CA');
+        })();
+    </script>
     <!-- 1. Base component class -->
     <script src="/static/js/components/BaseComponent.js"></script>
     <!-- 2. Shared services loaded before components -->

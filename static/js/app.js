@@ -4,30 +4,38 @@
  */
 
 // ── Instantiate services & components ────────────────────────────────────────
-const apiService = new ApiService();
-const dataService = new DataService(apiService);
-const symbolSelector = new SymbolSelector('symbol-selector-container');
-const timeSelector = new TimeSelector('time-slider', 'time-display');
-const instrumentSelector = new InstrumentSelector('instrument-list');
-const metricSelector = new MetricSelector('metric-list');
-const chartRenderer = new ChartRenderer('charts-area', metricSelector);
+// -- Instantiate services & components with safety guards --------------------
+let apiService, dataService, symbolSelector, timeSelector, instrumentSelector, metricSelector, chartRenderer;
+try {
+    apiService = new ApiService();
+    dataService = new DataService(apiService);
+    symbolSelector = new SymbolSelector('symbol-selector-container');
+    timeSelector = new TimeSelector('time-slider', 'time-display');
+    instrumentSelector = new InstrumentSelector('instrument-list');
+    metricSelector = new MetricSelector('metric-list');
+    chartRenderer = new ChartRenderer('charts-area', metricSelector);
+} catch (e) {
+    console.error("[App] Component instantiation failed:", e);
+}
 const nextExpiryChk = document.getElementById('next-expiry-chk');
 
-// ── Real-time Instrument List Observer (Subscriber Pattern) ──────────────────
-dataService.onInstrumentsChanged((instruments) => {
-    console.log("[App] Updating strike selector from resolved list...");
-    instrumentSelector.render(instruments, currentReferenceSpotPrice);
-});
+// -- Real-time Instrument List Observer (Subscriber Pattern) ------------------
+if (dataService && instrumentSelector) {
+    dataService.onInstrumentsChanged((instruments) => {
+        console.log("[App] Updating strike selector from resolved list...");
+        instrumentSelector.render(instruments, currentReferenceSpotPrice);
+    });
+}
 
 // Expose for cross-module access (e.g. DataService date-shift handling)
 window._timeSelector = timeSelector;
 window._symbolSelector = symbolSelector;
 
 // ── State ────────────────────────────────────────────────────────────────────
-let isLiveMode      = false;
+let isLiveMode = false;
 let refreshInterval = null;
-let currentRenderedSymbol    = null;
-let currentRenderedDate      = null;
+let currentRenderedSymbol = null;
+let currentRenderedDate = null;
 let currentReferenceSpotPrice = null;
 let _liveToggleBlocked = false; // true when market is closed/holiday — live toggle must stay off
 
@@ -35,11 +43,11 @@ let _liveToggleBlocked = false; // true when market is closed/holiday — live t
 function showNotice(message, duration = 5000) {
     const loader = document.getElementById('loading');
     if (!loader) return;
-    
+
     loader.textContent = message;
     loader.style.display = 'flex';
     loader.classList.add('waiting');
-    
+
     // Clear after duration
     setTimeout(() => {
         if (loader.classList.contains('waiting') && loader.textContent === message) {
@@ -52,7 +60,7 @@ function showNotice(message, duration = 5000) {
 // ── Wiring: Data → UI ────────────────────────────────────────────────────────
 dataService.subscribe((records, isInitial, status, errorCode) => {
     console.log(`[App] Data event. Records: ${records ? records.length : 0}, Status: ${status}, Error: ${errorCode}`);
-    
+
     // 1. Handle Auth Error (UDAPI100050)
     const refreshBtn = document.querySelector('button[onclick="refreshToken()"]');
     if (status === "auth_error") {
@@ -112,17 +120,17 @@ dataService.subscribe((records, isInitial, status, errorCode) => {
         console.warn("[App] No records received.");
         return;
     }
-    
+
     // ── Sync Instrument List — Automatic Side-Bar Update ───────────────────
     const targetTime = timeSelector.time;
     // Find the specific record for our slider time to get the correct spot price
     const matchingRow = records.find(r => r.date.includes(targetTime)) || records[records.length - 1];
     const spotPrice = parseFloat(matchingRow.spot_price) || null;
     currentReferenceSpotPrice = spotPrice; // Store for selection changes
-    
+
     const currentSymbol = symbolSelector.symbol;
     const currentDate = (matchingRow && matchingRow.date) ? matchingRow.date.split(' ')[0] : '';
-    
+
     // Extract candidate instrument info from the data
     const symbols = [...new Set(records.map(r => r.symbol))].sort();
     const currentInstrumentInfo = symbols.map(sym => {
@@ -141,51 +149,51 @@ dataService.subscribe((records, isInitial, status, errorCode) => {
     });
 
     const hasInstruments = document.querySelectorAll('.instrument-cb').length > 0;
-    
+
     // Force re-render if it's initial, or no instruments, OR the set of strikes has changed
     const existingSymbols = (instrumentSelector._lastInstrumentInfo || []).map(x => x.symbol);
-    const strikesShifted = existingSymbols.length !== symbols.length || 
-                          !symbols.every(s => existingSymbols.includes(s));
-    
+    const strikesShifted = existingSymbols.length !== symbols.length ||
+        !symbols.every(s => existingSymbols.includes(s));
+
     const strikes = currentInstrumentInfo.map(x => parseFloat(x.strike)).filter(s => !isNaN(s));
-    
+
     // ── Aggressive Refresh: If the ATM strike shifts, re-center the whole list ─
     let isAtmShifted = false;
     if (strikes.length > 0 && spotPrice) {
         // Find the strike in our current list that is closest to the spot
-        const currentAtm = strikes.reduce((prev, curr) => 
+        const currentAtm = strikes.reduce((prev, curr) =>
             Math.abs(curr - spotPrice) < Math.abs(prev - spotPrice) ? curr : prev
         );
         // Find the strike that is currently at the center of our list
         const centerIdx = Math.floor(strikes.length / 2);
         const centerStrike = strikes[centerIdx];
-        
+
         // If the price has moved so much that a different strike is now the center-point
         // of our resolution, we trigger a re-fetch to get new OTM/ITMs around it.
         isAtmShifted = (currentAtm !== centerStrike);
     }
 
-    const needsRefresh = isInitial || !hasInstruments || 
-                         currentRenderedSymbol !== currentSymbol || 
-                         currentRenderedDate !== currentDate ||
-                         strikesShifted || isAtmShifted;
+    const needsRefresh = isInitial || !hasInstruments ||
+        currentRenderedSymbol !== currentSymbol ||
+        currentRenderedDate !== currentDate ||
+        strikesShifted || isAtmShifted;
 
     if (needsRefresh) {
         try {
             if (currentInstrumentInfo.length > 0) {
                 console.log(`[App] Instrument list shifted or new load (Spot: ${spotPrice}). Syncing sidebar...`);
                 instrumentSelector.render(currentInstrumentInfo, spotPrice);
-                
+
                 // Update Sidebar Labels: Spot Price & Date
                 const spotEl = document.getElementById('spot-price-display');
                 if (spotEl) {
                     spotEl.innerHTML = `<strong>Spot Price:</strong> ${spotPrice.toFixed(2)}`;
                     spotEl.style.color = '#1e88e5'; // Highlight when syncing
                 }
-                
+
                 currentRenderedSymbol = currentSymbol;
                 currentRenderedDate = currentDate;
-                
+
                 // After full render, always apply current filters (Scalping, etc.)
                 if (window.applyCurrentFilters) {
                     window.applyCurrentFilters(false);
@@ -197,7 +205,7 @@ dataService.subscribe((records, isInitial, status, errorCode) => {
     } else {
         // Just re-calculate ATM/ITM labels/colors in place without re-rendering the whole sidebar
         instrumentSelector.recolor(spotPrice);
-        
+
         // Even if list didn't change, the SELECTION might need to move (e.g. Scalping ATM changed)
         if (window.applyCurrentFilters) {
             window.applyCurrentFilters(false);
@@ -268,7 +276,7 @@ async function fetchData(silent = false) {
     const now = new Date();
     const ist = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
     const hour = ist.getHours();
-    
+
     const yesterday = new Date(ist);
     yesterday.setDate(yesterday.getDate() - 1);
     const yesterdayStr = yesterday.toLocaleDateString('en-CA');
@@ -287,7 +295,7 @@ async function fetchData(silent = false) {
         if (spotEl) {
             spotEl.innerHTML = `<strong>Spot Price:</strong> <span class="pulse-text" style="width: 80px; height: 18px; vertical-align: middle; display: inline-block;"></span>`;
         }
-        
+
         const expiryEl = document.getElementById('expiry-display');
         if (expiryEl) {
             expiryEl.innerHTML = `<strong>Expiry:</strong> <span class="pulse-text" style="width: 100px; height: 18px; vertical-align: middle; display: inline-block;"></span>`;
@@ -299,17 +307,17 @@ async function fetchData(silent = false) {
         }
 
         chartRenderer.clear ? chartRenderer.clear() : null;
-        
+
         // Show skeleton list in sidebar
         if (instrumentSelector.container) {
-            instrumentSelector.container.innerHTML = Array(12).fill(0).map(() => 
+            instrumentSelector.container.innerHTML = Array(12).fill(0).map(() =>
                 `<div class="skeleton-sidebar"></div>`
             ).join('');
         }
-        
+
         dataService.clearData();
     }
-    
+
     await dataService.load(window.buildParams(), silent);
 }
 
@@ -326,7 +334,7 @@ function getInitialDate() {
     const now = new Date();
     const ist = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
     const day = ist.getDay(); // 0=Sun, 6=Sat
-    
+
     if (day === 0) { // Sunday -> Last Friday
         ist.setDate(ist.getDate() - 2);
     } else if (day === 6) { // Saturday -> Friday
@@ -354,7 +362,7 @@ datePicker.addEventListener('change', () => {
     if (selectedDate !== istToday && isLiveMode) {
         console.log(`[App] Date changed to ${selectedDate} — disabling live mode.`);
         isLiveMode = false;
-        liveToggle.checked  = false;
+        liveToggle.checked = false;
         datePicker.disabled = false;
         // Notify the user when the date looks like an expired contract window
         showNotice(`Historical mode: fetching data for ${selectedDate}`, 4000);
@@ -380,10 +388,10 @@ datePicker.addEventListener('change', () => {
 let sliderDebounceTimer = null;
 document.getElementById('time-slider').addEventListener('input', () => {
     timeSelector.updateDisplay();
-    
+
     // Clear existing timer
     if (sliderDebounceTimer) clearTimeout(sliderDebounceTimer);
-    
+
     // Wait for 200ms of stillness before fetching (MUCH snappier)
     sliderDebounceTimer = setTimeout(() => {
         fetchData(true); // silent = true to prevent clearing/skeletons during slide
@@ -396,9 +404,9 @@ document.getElementById('time-slider').addEventListener('input', () => {
 document.getElementById('interval-select').addEventListener('change', (e) => {
     e.target.dataset.userHardSet = "true";
     const exchange = symbolSelector.exchange || 'NSE';
-    const symbol   = symbolSelector.symbol || 'NIFTY';
+    const symbol = symbolSelector.symbol || 'NIFTY';
     const interval = parseInt(document.getElementById('interval-select').value);
-    
+
     timeSelector.reconfigure(exchange, interval);
 
     // If live mode is enabled, we must re-join the symbol room so the 
@@ -407,13 +415,13 @@ document.getElementById('interval-select').addEventListener('change', (e) => {
         console.log(`[App] Interval changed while Live — notifying scheduler of ${interval}m interest.`);
         dataService.initWebSocket(symbol);
     }
-    
+
     fetchData();
 });
 
 nextExpiryChk.addEventListener('change', () => {
     const symbol = symbolSelector.symbol || 'NIFTY';
-    
+
     // Notify scheduler of new expiry track interest if alive
     if (isLiveMode) {
         console.log(`[App] Expiry track changed while Live — notifying scheduler.`);
@@ -428,20 +436,28 @@ nextExpiryChk.addEventListener('change', () => {
 
 liveToggle.addEventListener('change', async () => {
     const exchange = symbolSelector.exchange || 'NSE';
-    const symbol   = symbolSelector.symbol   || 'NIFTY';
+    const symbol = symbolSelector.symbol || 'NIFTY';
 
     if (liveToggle.checked) {
-        // ── LIVE ON: probe spot price first to detect holidays ─────────────
-        console.log(`[App] Live toggle ON — probing spot for ${symbol} (${exchange})…`);
-        showNotice(`Checking market status for ${symbol}…`, 4000);
+        // ── LIVE ON: probe spot price only if we don't already have today's data ──
+        const todayStr = new Date().toLocaleDateString('en-CA');
+        const isCurrentlyToday = (datePicker.value === todayStr);
+        const hasData = (dataService.rawData && dataService.rawData.length > 0);
 
         let probe = { is_holiday: false, spot_price: null, reason: '' };
-        try {
-            probe = await apiService.spotProbe(exchange, symbol);
-        } catch (e) {
-            console.warn('[App] Spot probe failed, proceeding cautiously.', e);
-        }
 
+        if (isCurrentlyToday && hasData) {
+            console.log(`[App] Already on today's session. Skipping spot probe.`);
+            probe.spot_price = currentReferenceSpotPrice;
+        } else {
+            console.log(`[App] Live toggle ON — probing spot for ${symbol} (${exchange})…`);
+            showNotice(`Checking market status for ${symbol}…`, 4000);
+            try {
+                probe = await apiService.spotProbe(exchange, symbol);
+            } catch (e) {
+                console.warn('[App] Spot probe failed, proceeding cautiously.', e);
+            }
+        }
         if (probe.reason === 'market_closed') {
             // Market hasn't opened yet — refuse live mode, use historical
             console.log('[App] Market not open yet. Blocking live mode.');
@@ -474,7 +490,7 @@ liveToggle.addEventListener('change', async () => {
 
         // ── Market is open AND data exists → go live ──────────────────────
         isLiveMode = true;
-        const todayStr = new Date().toLocaleDateString('en-CA');
+        todayStr = new Date().toLocaleDateString('en-CA');
         datePicker.value = todayStr;
         datePicker.disabled = true;
 
@@ -485,11 +501,9 @@ liveToggle.addEventListener('change', async () => {
             timeSelector.updateDisplay();
         }
 
-        // Track active symbol for WS filtering, then fetch and join
+        // Track active symbol for WS filtering, then join
         dataService.setActiveSymbol(symbol);
-        await fetchData();
         dataService.initWebSocket(symbol);
-
         console.log(`[App] Live mode ON for ${symbol}.`);
         showNotice(`Live mode ON — ${symbol}`, 4000);
 
@@ -532,7 +546,7 @@ window.handleSelectorClick = (type) => {
     if (!btn) return;
 
     const allButtons = document.querySelectorAll('#selector-toggles .btn');
-    
+
     // Logic: 
     // - 'all' and 'none' (Clear) are mutually exclusive to others.
     // - 'ce', 'pe', 'intraday', 'scalping' are toggles.
@@ -544,7 +558,7 @@ window.handleSelectorClick = (type) => {
         // Deactivate 'all' and 'none' master switches if any specific filter is toggled
         document.getElementById('btn-all').classList.remove('active');
         document.getElementById('btn-none').classList.remove('active');
-        
+
         // Exclusivity: CE vs PE
         if (type === 'ce') document.getElementById('btn-pe').classList.remove('active');
         if (type === 'pe') document.getElementById('btn-ce').classList.remove('active');
@@ -595,7 +609,7 @@ function updateIntervalAvailability() {
 
     const now = new Date();
     const ist = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
-    
+
     // Market open in minutes from midnight
     const marketOpenMinutes = (exchange === 'NSE') ? (9 * 60 + 15) : (9 * 60);
     const currentMinutes = ist.getHours() * 60 + ist.getMinutes();
@@ -607,7 +621,7 @@ function updateIntervalAvailability() {
     let firstAvailable = null;
     Array.from(intervalSelect.options).forEach(opt => {
         const intervalVal = parseInt(opt.value);
-        
+
         // If today, only enable if at least one candle has completed
         if (isToday && elapsedMinutes >= 0 && elapsedMinutes < 720) { // Keep logic for morning/day
             if (elapsedMinutes < intervalVal) {
@@ -630,7 +644,7 @@ function updateIntervalAvailability() {
     // After 10:00 AM, if the interval wasn't manually set, default to 15m for stable viewing.
     const isLateMorning = ist.getHours() > 10 || (ist.getHours() === 10 && ist.getMinutes() >= 0);
     const currentVal = intervalSelect.value;
-    
+
     if (isToday && isLateMorning && currentVal !== "15" && !intervalSelect.dataset.userHardSet) {
         console.log("[App] Defaulting to 15m interval (Post-10AM session).");
         intervalSelect.value = "15";
@@ -649,8 +663,8 @@ document.getElementById('loading').style.display = 'none';
 (async () => {
     updateIntervalAvailability();
 
-    const initialSymbol   = symbolSelector.symbol   || 'NIFTY';
-    const initialExchange = symbolSelector.exchange  || 'NSE';
+    const initialSymbol = symbolSelector.symbol || 'NIFTY';
+    const initialExchange = symbolSelector.exchange || 'NSE';
     console.log(`[App] Initializing dashboard layout for ${initialSymbol} (${initialExchange})...`);
 
     // ── Step 1: Pre-market check ─────────────────────────────────────────
@@ -663,10 +677,10 @@ document.getElementById('loading').style.display = 'none';
         if (preStatus.use_historical && preStatus.date) {
             // Market is closed / pre-market / holiday
             // → set date picker to the advised date, keep live toggle OFF
-            datePicker.value    = preStatus.date;
-            liveToggle.checked  = false;
+            datePicker.value = preStatus.date;
+            liveToggle.checked = false;
             liveToggle.disabled = false; // still allow user to try when they think market opens
-            isLiveMode          = false;
+            isLiveMode = false;
 
             // Reconfigure slider AFTER setting the date — this recalculates
             // slider.max with isToday=false so 15:30 becomes the correct max.
@@ -679,12 +693,23 @@ document.getElementById('loading').style.display = 'none';
 
 
             const msgMap = {
-                pre_market:  `Market opens later. Showing ${preStatus.date}.`,
+                pre_market: `Market opens later. Showing ${preStatus.date}.`,
                 after_close: `Market closed. Showing ${preStatus.date}.`,
-                weekend:     `Weekend — showing last session (${preStatus.date}).`,
+                weekend: `Weekend — showing last session (${preStatus.date}).`,
             };
             const msg = msgMap[preStatus.reason] || `Showing ${preStatus.date}.`;
             showNotice(msg, 7000);
+        } else if (preStatus.use_historical === false) {
+            // ── Market is OPEN and data is present! ──
+            // Automatically upgrade to Live Mode on first load.
+            console.log('[App] Market is open — automatically engaging Live Mode.');
+            isLiveMode = true;
+            if (liveToggle) liveToggle.checked = true;
+            if (datePicker) {
+                datePicker.value = preStatus.date || new Date().toLocaleDateString('en-CA');
+                datePicker.disabled = true;
+            }
+            showNotice(`Market is open. Live mode AUTO-ON.`, 5000);
         }
         // If use_historical=false the market is OPEN — normal flow below
     } catch (e) {
@@ -698,11 +723,11 @@ document.getElementById('loading').style.display = 'none';
     // The socket is kept alive; the active symbol filter in DataService ensures
     // only updates for the current symbol trigger re-renders.
     try {
-        // 3. Trigger initial data fetch
-        await fetchData();
-
-        // 4. Then initialize WebSocket room join
+        // 3. Initialize WebSocket room join (join room first!)
         dataService.initWebSocket(initialSymbol);
+
+        // 4. Then trigger initial data fetch
+        await fetchData();
     } catch (e) {
         console.error("[App] Socket initialization failed:", e);
     }

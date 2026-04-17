@@ -64,7 +64,8 @@ SCHEDULER_HOURS: dict[str, dict] = {
 }
 
 # ── Strike selection ─────────────────────────────────────────────────────────
-DEFAULT_NUM_STRIKES = 3      # strikes on each side of ATM
+DEFAULT_NUM_STRIKES = 3      # strikes on each side (NSE/BSE)
+MCX_NUM_STRIKES     = 2      # strikes on each side (MCX)
 MCX_STRIKE_STEP     = 50     # ATM rounding step for MCX
 
 # ── API configuration ────────────────────────────────────────────────────────
