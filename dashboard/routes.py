@@ -346,7 +346,7 @@ def get_option_data():
             _prefix     = prefix
             _sym        = sym
 
-            def bg_fetch_task():
+            def bg_fetch_task(rollback_count=0):
                 t_bg = time.time()
                 try:
                     from storage.db_storage import build_storage_chain
@@ -374,22 +374,26 @@ def get_option_data():
 
                     if not os.path.exists(_csv_path):
                         # ── TRUE Holiday / no-data: roll back to previous trading day ──
-                        print(f"[API-BG] No data returned for {_date_str} ({_symbol}) after hybrid probe. "
-                              f"Treating as holiday — rolling back...")
-                        prev_date    = get_prev_trading_day(_date_str)
+                        # Safety: Only rollback if we haven't reached the limit (max 3 days).
+                        # Also check if it was a 401 error (don't loop if unauthorized).
+                        if rollback_count >= 3:
+                            print(f"[API-BG] Max rollbacks reached for {_symbol}. Stopping.")
+                            socketio.emit("error", {"symbol": _symbol, "message": "Could not find data after 3 days of rollback."}, room=_symbol)
+                            return
 
+                        print(f"[API-BG] No data returned for {_date_str} ({_symbol}). "
+                              f"Treating as holiday — rolling back ({rollback_count + 1}/3)...")
+                        
+                        prev_date    = get_prev_trading_day(_date_str)
                         prev_suffix  = ("_next" if _next_exp else "") + f"_int{_interval}"
                         prev_csv     = os.path.join(
                             os.getcwd(), _dir_name,
                             f"{_prefix}_{_sym}_tabular_{prev_date}{prev_suffix}.csv"
                         )
-                        if not os.path.exists(prev_csv):
-                            prev_pipeline = build_pipeline(
-                                _exchange, prev_date, False, _symbol,
-                                storage, interval=_interval, next_expiry=_next_exp
-                            )
-                            if prev_pipeline:
-                                prev_pipeline.run(_symbol, prev_date, "")
+                        
+                        # We don't recursively call bg_fetch_task automatically in a loop here.
+                        # Instead, we notify the client of the holiday detection.
+                        # The client can then decide to switch or we can do one more fetch.
                         socketio.emit("holiday_detected", {
                             "symbol":        _symbol,
                             "date":          _date_str,
