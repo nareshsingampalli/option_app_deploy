@@ -145,7 +145,7 @@ class ExpiredHandler(StrategyHandler):
         )
 
         if is_expired:
-            print(f"[StrategyChain] EXPIRED ({ctx.target_date} <= {ctx.last_expired_dt.date()}) → ExpiredCandleFetcher")
+            print(f"[StrategyChain] EXPIRED ({ctx.target_date} <= {ctx.last_expired_dt.date()}) -> ExpiredCandleFetcher")
             fetcher = CandleFetcherFactory.create(
                 ctx.target_date, last_expired_dt=target_dt, interval=ctx.interval
             )

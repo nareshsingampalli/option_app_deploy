@@ -59,6 +59,10 @@ class IntradayCandleFetcher(BaseCandleFetcher):
         
         @retry_api_call(max_retries=3)
         def _get():
+            # In Upstox V2 SDK, get_intra_day_candle_data expects:
+            # interval = '1minute' or '30minute'
+            # api_version = '2.0'
+            interval_str = f"{interval}minute" if unit == "minutes" else f"{interval}{unit}"
             return self._history_api.get_intra_day_candle_data(
                 instrument_key, unit, interval
             )

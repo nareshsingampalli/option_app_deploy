@@ -178,7 +178,7 @@ def spot_probe():
         df = fetcher.get_spot_candles(spot_key, today)
 
         if df is None or df.empty:
-            print(f"[SpotProbe] {symbol} ({exchange}): empty → holiday or pre-data")
+            print(f"[SpotProbe] {symbol} ({exchange}): empty -> holiday or pre-data")
             return jsonify({"is_holiday": True, "spot_price": None})
 
         spot_price = float(df["close"].iloc[-1])
@@ -243,7 +243,9 @@ def pre_market_status():
         spot_key = BSE_INDEX_KEYS.get("SENSEX", "BSE_INDEX|SENSEX")
 
     # Probe up to 5 days back to skip holidays
-    for i in range(5):
+    # Probe rollback: NSE/BSE probe up to 5 days, MCX only probes the candidate directly.
+    probe_range = 1 if exchange == "MCX" else 5
+    for i in range(probe_range):
         try:
             # 1. Primary: Try Historical (where past data belongs)
             df = hist_fetcher.get_spot_candles(spot_key, candidate)
@@ -373,7 +375,12 @@ def get_option_data():
                             bridge_pipeline.run(_symbol, _date_str, _time_str)
 
                     if not os.path.exists(_csv_path):
-                        # ── TRUE Holiday / no-data: roll back to previous trading day ──
+                        # ── TRUE Holiday / no-data ──
+                        if _exchange == "MCX":
+                             print(f"[API-BG] No MCX data for {_date_str}. Rollback disabled as requested.")
+                             return
+
+                        # roll back to previous trading day (NSE/BSE)
                         # Safety: Only rollback if we haven't reached the limit (max 3 days).
                         # Also check if it was a 401 error (don't loop if unauthorized).
                         if rollback_count >= 3:

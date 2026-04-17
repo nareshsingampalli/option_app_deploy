@@ -62,8 +62,22 @@ dataService.subscribe((records, isInitial, status, errorCode) => {
         refreshBtn.classList.remove('btn-error-pulse');
     }
 
-    // 2. Handle Holiday / No-data — auto-fallback to previous trading day
+    // 2. Handle Holiday / No-data — auto-fallback (NSE/BSE only)
     if (status === "holiday") {
+        const currentExchange = symbolSelector.exchange || 'NSE';
+        if (currentExchange === 'MCX') {
+            console.log("[App] MCX data missing - rollback disabled.");
+            showNotice("No MCX data available for this session.", 6000);
+            if (isLiveMode) {
+                isLiveMode = false;
+                const liveToggle = document.getElementById('live-toggle');
+                if (liveToggle) liveToggle.checked = false;
+                const datePicker = document.getElementById('date-picker');
+                if (datePicker) datePicker.disabled = false;
+            }
+            return;
+        }
+
         // Only turn off live toggle if it was on
         if (isLiveMode) {
             console.log("[App] Holiday detected — disabling Live Mode.");
@@ -439,12 +453,17 @@ liveToggle.addEventListener('change', async () => {
 
         if (probe.is_holiday) {
             // Market hours but NO data → this is a holiday
-            console.log('[App] Holiday detected via spot probe. Switching to historical.');
+            console.log('[App] Holiday detected via spot probe.');
             liveToggle.checked = false;
             isLiveMode = false;
             datePicker.disabled = false;
 
-            // Roll date picker back to previous trading day
+            if (exchange === 'MCX') {
+                showNotice(`No MCX data available for today.`, 6000);
+                return;
+            }
+
+            // Roll date picker back to previous trading day (NSE/BSE)
             const datePart = datePicker.value;
             const prev = new Date(datePart);
             prev.setDate(prev.getDate() - 1);
@@ -477,7 +496,6 @@ liveToggle.addEventListener('change', async () => {
         console.log(`[App] Live mode ON for ${symbol}. Spot confirmed: ${probe.spot_price}`);
         showNotice(`Live mode ON — ${symbol} @ ${probe.spot_price || '…'}`, 4000);
 
-        dataService.load(window.buildParams());
         fetchData();
 
     } else {
