@@ -420,7 +420,11 @@ def get_option_data():
 
                 except Exception as e:
                     print(f"[API-BG] Error: {e}")
-                    socketio.emit("error", {"symbol": _symbol, "message": f"Data process error: {str(e)}"}, room=_symbol)
+                    # Check for 401 Unauthorized specifically
+                    if "401" in str(e) or (hasattr(e, 'status') and e.status == 401):
+                        socketio.emit("error", {"symbol": _symbol, "message": "AUTHENTICATION_FAILED: Token invalid or expired. Please refresh token."}, room=_symbol)
+                    else:
+                        socketio.emit("error", {"symbol": _symbol, "message": f"Data process error: {str(e)}"}, room=_symbol)
                 finally:
                     print(f"[API-BG] Task finished for {_symbol} in {time.time() - t_bg:.2f}s")
                     try: lock.release()
@@ -450,6 +454,17 @@ def get_option_data():
         return res
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/refresh-token", methods=["POST"])
+def refresh_token():
+    """Manually reloads the Upstox access token from the environment/config."""
+    from core.config import reload_access_token
+    success = reload_access_token()
+    if success:
+        return jsonify({"status": "success", "message": "Token reloaded from environment."})
+    else:
+        return jsonify({"status": "error", "message": "Failed to reload token. Check your .env file or config.py."}), 500
 
 
 @socketio.on("join_symbol")

@@ -14,170 +14,115 @@
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 
-<body>
+<body class="dark-mode">
     <div id="loading">Loading Option Data...</div>
+
+    <!-- ── NEW: Dashboard Header (Sticky) ────────────────────────── -->
+    <header class="dashboard-header">
+        <div class="header-metric">
+            <span class="metric-label">NIFTY 50</span>
+            <span id="header-spot-price" class="metric-value">--</span>
+        </div>
+        <div class="header-metric">
+            <span class="metric-label">Market Trend</span>
+            <span id="header-market-trend" class="metric-value" style="color:var(--neon-green)">BULLISH</span>
+        </div>
+        <div class="header-metric">
+            <span class="metric-label">IV Trend</span>
+            <span id="header-iv-trend" class="metric-value" style="color:var(--accent-blue)">STABLE</span>
+        </div>
+        <div class="header-metric">
+            <span class="metric-label">Bias Summary</span>
+            <span id="header-bias" class="metric-value">Long Build-up</span>
+        </div>
+    </header>
 
     <div class="app-container">
 
-        <!-- -- Sidebar Controls ------------------------------- -->
+        <!-- -- Sidebar Controls (Compact) ----------------------- -->
         <div class="sidebar">
-
-            <!-- Exchange + Symbol selector -->
             <div>
                 <h2>Market</h2>
                 <div id="symbol-selector-container"></div>
             </div>
 
-            <!-- Live toggle + date + time -->
             <div>
-                <h2>
-                    Controls
-                    <div style="display:flex; align-items:center;">
-                        <span class="live-label">Live</span>
-                        <label class="switch">
-                            <input type="checkbox" id="live-toggle">
-                            <span class="slider-toggle"></span>
-                        </label>
-                    </div>
-                </h2>
-
+                <h2>Controls</h2>
                 <div class="control-group">
-                    <label for="date-picker">Select Date:</label>
-                    <input type="date" id="date-picker"
-                        style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px;">
-                </div>
-
-                <div class="control-group">
-                    <label for="time-slider">
-                        Spot Reference Time:
-                        <span id="time-display"
-                            style="font-weight:bold; color:var(--primary-color); margin-left:5px;">15:30</span>
+                    <label class="switch">
+                        <input type="checkbox" id="live-toggle" checked>
+                        <span class="slider-toggle"></span>
+                        <span class="live-label" style="margin-left: 10px;">Live Mode</span>
                     </label>
-                    <input type="range" id="time-slider" min="0" max="25" value="25" step="1" style="width:100%;">
-                    <div style="display:flex; justify-content:space-between; font-size:10px; color:#666;">
-                        <span>09:15</span><span>12:15</span><span>15:30</span>
-                    </div>
-                    <small style="color:#666; font-size:11px;">Slide to change strike selection time</small>
                 </div>
 
-
-
-                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-top: 10px;">
-                    <div>
-                        <div id="spot-price-display"
-                            style="font-weight:bold; color:var(--primary-color); font-size:16px;"></div>
-                        <div id="expiry-date-display" style="font-size:14px; color:#555; margin-top:5px;"></div>
-                    </div>
-                    <div>
-                        <label for="interval-select"
-                            style="font-size: 11px; color: #666; display: block; margin-bottom: 2px;">Interval
-                            (min)</label>
-                        <select id="interval-select"
-                            style="padding: 4px; font-size: 12px; border: 1px solid #ddd; border-radius: 4px;">
-                            <option value="1">1</option>
-                            <option value="3">3</option>
-                            <option value="5">5</option>
-                            <option value="10">10</option>
-                            <option value="15" selected>15</option>
-                            <option value="30">30</option>
-                            <option value="45">45</option>
-                            <option value="60">60</option>
-                        </select>
-                    </div>
+                <div class="control-group" style="margin-top: 10px;">
+                    <select id="interval-select"
+                        style="width: 100%; padding: 8px; background: #334155; color: white; border: none; border-radius: 4px;">
+                        <option value="1">1 Min</option>
+                        <option value="5">5 Min</option>
+                        <option value="15" selected>15 Min</option>
+                    </select>
                 </div>
-                <div id="last-updated" style="font-size:10px; color:#999; margin-top:2px;"></div>
             </div>
 
-            <!-- Instrument selector -->
             <div>
-                <h2 style="display:flex; justify-content:space-between; align-items:center; border-bottom: none !important; margin-bottom: 0;">
-                    <span style="flex: 1; padding-bottom: 5px;">Instruments</span>
-
-                    <!-- New segments in header segment -->
-                    <div
-                        style="display:flex; align-items:center; gap: 15px; font-size: 11px; font-weight: normal; color: #555;">
-                        <div id="expiry-date-header"
-                            style="background: #eef2f7; padding: 2px 6px; border-radius: 4px; border: 1px solid #d1d9e6;">
-                            Expiry: <span id="header-expiry-val">--</span>
-                        </div>
-
-                        <label class="next-expiry-toggle"
-                            style="display: flex; align-items: center; gap: 4px; cursor: pointer; color: var(--text-muted); white-space: nowrap;">
-                            <span>Next</span>
-                            <input type="checkbox" id="next-expiry-chk" style="margin: 0; cursor: pointer;">
-                        </label>
-                    </div>
-                </h2>
-                <div style="border-bottom: 2px solid #eee; margin-top: 5px; margin-bottom: 10px;"></div>
-                <div class="btn-group" id="selector-toggles">
-                    <button id="btn-all" class="btn" onclick="handleSelectorClick('all')">All</button>
-                    <button id="btn-ce" class="btn" onclick="handleSelectorClick('ce')">All CE</button>
-                    <button id="btn-pe" class="btn" onclick="handleSelectorClick('pe')">All PE</button>
-                    <button id="btn-intraday" class="btn" onclick="handleSelectorClick('intraday')">Intraday</button>
-                    <button id="btn-scalping" class="btn active"
-                        onclick="handleSelectorClick('scalping')">Scalping</button>
-                    <button id="btn-none" class="btn" onclick="handleSelectorClick('none')">Clear</button>
-                </div>
-                <div class="scrollable-list" id="instrument-list">
-                    <!-- Populated by InstrumentSelector.js -->
-                </div>
+                <h2>Strikes</h2>
+                <div id="instrument-list" class="scrollable-list" style="max-height: 200px;"></div>
             </div>
 
-            <!-- Metric checkboxes -->
             <div>
-                <h2>Metrics (Criteria)</h2>
-                <div class="control-group" id="metric-list">
-                    <label><input type="checkbox" class="metric-cb" value="ltp" checked> LTP</label>
-                    <label><input type="checkbox" class="metric-cb" value="change_in_ltp"> Change in LTP</label>
-                    <label><input type="checkbox" class="metric-cb" value="roc_oi" checked> ROC OI (%)</label>
-                    <label><input type="checkbox" class="metric-cb" value="roc_volume"> ROC Volume (%)</label>
-                    <label><input type="checkbox" class="metric-cb" value="roc_iv"> ROC IV (%)</label>
-                    <label><input type="checkbox" class="metric-cb" value="coi_vol_ratio"> COI/Vol Ratio</label>
-                    <label><input type="checkbox" class="metric-cb" value="spot_price" checked> Spot Price</label>
+                <h2>Upstox Token</h2>
+                <div class="control-group" style="margin-top: 10px;">
+                    <button class="btn btn-primary" onclick="refreshToken()" style="width: 100%; margin-bottom: 10px;">
+                        Refresh Token
+                    </button>
+                    <div style="font-size: 10px; color: #94a3b8; line-height: 1.4;">
+                        Token expired? Update <code>core/config.py</code> or your <code>.env</code> file and click Refresh.
+                    </div>
                 </div>
             </div>
 
-            <button id="update-charts-btn" class="btn btn-primary"
-                style="width:100%; padding:10px; margin-bottom:10px;">
-                Update Charts
-            </button>
-
-            <button onclick="refreshToken()" class="btn"
-                style="width:100%; padding:8px; font-size:11px; background:#f5f5f5; color:#666; border:1px dashed #ccc;">
-                Refresh Token
-            </button>
+            <div>
+                <h2>Trade Suggestions</h2>
+                <div id="suggestions-container">
+                    <div style="font-size: 11px; color: #94a3b8;">Select a signal to see trade levels...</div>
+                </div>
+            </div>
         </div>
-        <!-- -- End Sidebar ------------------------------------ -->
 
-        <!-- -- Main Chart Area -------------------------------- -->
-        <div class="main-content" id="charts-area">
-            <!-- Charts injected by ChartRenderer.js -->
+        <!-- -- Main Content Area -------------------------------- -->
+        <div class="main-content">
+            <!-- ── NEW: Top Signals Panel ────────────────────────── -->
+            <div id="signals-panel-container"></div>
+
+            <!-- ── NEW: Decision Tabs ────────────────────────────── -->
+            <div class="decision-tabs">
+                <button class="tab-btn active" onclick="app.switchTab('overview')">Overview</button>
+                <button class="tab-btn" onclick="app.switchTab('oi')">OI Analysis</button>
+                <button class="tab-btn" onclick="app.switchTab('vol')">Volume</button>
+                <button class="tab-btn" onclick="app.switchTab('iv')">IV Trend</button>
+                <button class="tab-btn" onclick="app.switchTab('ltp')">LTP</button>
+            </div>
+
+            <div id="charts-area">
+                <!-- Charts injected by ChartRenderer.js -->
+            </div>
         </div>
     </div>
 
-    <!-- -- Decoupled JS - load order matters ------------------------------- -->
-    <script>
-        // Set date immediately to avoid blank picker during component load
-        (function() {
-            const dp = document.getElementById('date-picker');
-            if (dp) dp.value = new Date().toLocaleDateString('en-CA');
-        })();
-    </script>
-    <!-- 1. Base component class -->
+    <!-- Scripts -->
     <script src="/static/js/components/BaseComponent.js"></script>
-    <!-- 2. Shared services loaded before components -->
     <script src="/static/js/services/InstrumentColorService.js"></script>
-    <!-- 3. Pure UI components -->
+    <script src="/static/js/services/DecisionEngine.js"></script>
     <script src="/static/js/components/SymbolSelector.js"></script>
     <script src="/static/js/components/TimeSelector.js"></script>
     <script src="/static/js/components/InstrumentSelector.js"></script>
     <script src="/static/js/components/MetricSelector.js"></script>
+    <script src="/static/js/components/SignalsPanel.js"></script>
     <script src="/static/js/components/ChartRenderer.js"></script>
-    <!-- 3. Services (API + Data/Observer) -->
     <script src="/static/js/services/ApiService.js"></script>
     <script src="/static/js/services/DataService.js"></script>
-    <!-- 4. Orchestrator — wires everything together -->
     <script src="/static/js/app.js"></script>
 </body>
-
 </html>

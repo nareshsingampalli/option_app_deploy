@@ -1,7 +1,7 @@
 /**
  * Base Component Class - Structural: Composite/Template Pattern
  */
-class UIComponent {
+class BaseComponent {
     constructor(containerId) {
         this.container = document.getElementById(containerId);
     }
@@ -23,3 +23,6 @@ class UIComponent {
         if (loader) loader.style.display = 'none';
     }
 }
+
+// Alias for components that were using the old name
+window.UIComponent = BaseComponent;

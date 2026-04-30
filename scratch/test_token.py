@@ -1,26 +1,18 @@
-import sys
-import os
-sys.path.append(os.getcwd())
+import requests
+from core.config import UPSTOX_ACCESS_TOKEN, UPSTOX_API_URL
 
-from fetchers.intraday import IntradayCandleFetcher
-from core.config import NSE_INDEX_KEYS
-
-def test_token_auth():
-    print(f"--- Token Authorization Check (SDK v2) ---")
-    fetcher = IntradayCandleFetcher()
-    key = NSE_INDEX_KEYS["NIFTY"]
-    
+def test_token():
+    url = f"{UPSTOX_API_URL}/v2/user/profile"
+    headers = {
+        'Accept': 'application/json',
+        'Authorization': f'Bearer {UPSTOX_ACCESS_TOKEN}'
+    }
     try:
-        # Upstox SDK v2 often needs api_version='2.0'
-        resp = fetcher._quote_api.get_full_market_quote(key, api_version='2.0')
-        if resp and resp.data:
-            print("TOKEN IS VALID: Successfully received market quote.")
-            ltp = resp.data[key].last_price
-            print(f"Current {key} LTP: {ltp}")
-        else:
-            print("TOKEN ISSUE: API returned success but no data.")
+        response = requests.get(url, headers=headers)
+        print(f"Status: {response.status_code}")
+        print(f"Body: {response.text}")
     except Exception as e:
-        print(f"TOKEN FAILED: {e}")
+        print(f"Error: {e}")
 
 if __name__ == "__main__":
-    test_token_auth()
+    test_token()
