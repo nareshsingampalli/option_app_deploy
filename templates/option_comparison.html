@@ -48,6 +48,12 @@
 
             <div>
                 <h2>Controls</h2>
+                <div class="control-group" style="margin-top: 10px;">
+                    <label for="date-picker" style="display: block; font-size: 12px; color: #94a3b8; margin-bottom: 4px;">Date</label>
+                    <input type="date" id="date-picker" 
+                        style="width: 100%; padding: 8px; background: #334155; color: white; border: none; border-radius: 4px; margin-bottom: 10px;">
+                </div>
+
                 <div class="control-group">
                     <label class="switch">
                         <input type="checkbox" id="live-toggle" checked>
@@ -57,6 +63,15 @@
                 </div>
 
                 <div class="control-group" style="margin-top: 10px;">
+                    <label class="switch">
+                        <input type="checkbox" id="next-expiry-chk">
+                        <span class="slider-toggle"></span>
+                        <span class="live-label" style="margin-left: 10px;">Next Expiry</span>
+                    </label>
+                </div>
+
+                <div class="control-group" style="margin-top: 10px;">
+                    <label for="interval-select" style="display: block; font-size: 12px; color: #94a3b8; margin-bottom: 4px;">Interval</label>
                     <select id="interval-select"
                         style="width: 100%; padding: 8px; background: #334155; color: white; border: none; border-radius: 4px;">
                         <option value="1">1 Min</option>
@@ -64,22 +79,86 @@
                         <option value="15" selected>15 Min</option>
                     </select>
                 </div>
+
+                <div class="control-group" style="margin-top: 15px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                        <label style="font-size: 12px; color: #94a3b8;">Time</label>
+                        <span id="time-display" style="font-size: 12px; font-weight: bold; color: var(--accent-blue);">--:--</span>
+                    </div>
+                    <input type="range" id="time-slider" min="0" max="100" value="100" style="width: 100%;">
+                    <div class="slider-labels" style="display: flex; justify-content: space-between; font-size: 9px; color: #64748b; margin-top: 2px;">
+                        <span>09:15</span>
+                        <span>12:30</span>
+                        <span>15:30</span>
+                    </div>
+                </div>
             </div>
 
-            <div>
-                <h2>Strikes</h2>
-                <div id="instrument-list" class="scrollable-list" style="max-height: 200px;"></div>
+            <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--glass-border);">
+                <div style="display: flex; justify-content: space-between; align-items: baseline;">
+                    <h2 style="margin:0;">Instruments</h2>
+                    <span id="header-expiry-val" style="font-size: 11px; color: var(--accent-blue); padding: 2px 6px; background: rgba(56,189,248,0.1); border-radius: 4px; border: 1px solid rgba(56,189,248,0.2);">Expiry: --</span>
+                </div>
+                
+                <div class="control-group" style="margin-top: 5px; flex-direction: row; align-items: center; justify-content: flex-end; gap: 5px;">
+                    <span style="font-size: 10px; color: #94a3b8;">Next</span>
+                    <label class="switch" style="transform: scale(0.8);">
+                        <input type="checkbox" id="next-expiry-chk">
+                        <span class="slider-toggle"></span>
+                    </label>
+                </div>
+
+                <div class="instrument-filters" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; margin-top: 10px;">
+                    <button class="btn" onclick="app.filterInstruments('all')">All</button>
+                    <button class="btn" onclick="app.filterInstruments('ce')">All CE</button>
+                    <button class="btn" onclick="app.filterInstruments('pe')">All PE</button>
+                    <button class="btn" onclick="app.filterInstruments('intraday')">Intraday</button>
+                    <button class="btn active" onclick="app.filterInstruments('scalping')">Scalping</button>
+                    <button class="btn" onclick="app.filterInstruments('clear')">Clear</button>
+                </div>
+
+                <div id="instrument-list" class="scrollable-list" style="max-height: 250px; margin-top: 10px; border-color: var(--glass-border);"></div>
             </div>
 
-            <div>
+            <div style="margin-top: 20px;">
+                <h2>Metrics (Criteria)</h2>
+                <div id="metric-list" style="display: flex; flex-direction: column; gap: 8px;">
+                    <label class="checkbox-container">
+                        <input type="checkbox" class="metric-cb" value="ltp" checked> LTP
+                    </label>
+                    <label class="checkbox-container">
+                        <input type="checkbox" class="metric-cb" value="change_in_ltp"> Change in LTP
+                    </label>
+                    <label class="checkbox-container">
+                        <input type="checkbox" class="metric-cb" value="roc_oi" checked> ROC OI (%)
+                    </label>
+                    <label class="checkbox-container">
+                        <input type="checkbox" class="metric-cb" value="roc_volume" checked> ROC Volume (%)
+                    </label>
+                    <label class="checkbox-container">
+                        <input type="checkbox" class="metric-cb" value="roc_iv" checked> ROC IV (%)
+                    </label>
+                    <label class="checkbox-container">
+                        <input type="checkbox" class="metric-cb" value="coi_vol_ratio" checked> COI/Vol Ratio
+                    </label>
+                    <label class="checkbox-container">
+                        <input type="checkbox" class="metric-cb" value="spot_price" checked> Spot Price
+                    </label>
+                </div>
+            </div>
+
+            <div style="margin-top: 20px;">
+                <button class="btn btn-primary" onclick="renderCharts()" style="width: 100%; padding: 12px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.05em;">
+                    Update Charts
+                </button>
+            </div>
+
+            <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid var(--glass-border);">
                 <h2>Upstox Token</h2>
-                <div class="control-group" style="margin-top: 10px;">
-                    <button class="btn btn-primary" onclick="refreshToken()" style="width: 100%; margin-bottom: 10px;">
+                <div class="control-group" style="margin-top: 5px;">
+                    <button class="btn" onclick="refreshToken()" style="width: 100%; background: rgba(255,255,255,0.05); color: #94a3b8; border: 1px solid var(--glass-border);">
                         Refresh Token
                     </button>
-                    <div style="font-size: 10px; color: #94a3b8; line-height: 1.4;">
-                        Token expired? Update <code>core/config.py</code> or your <code>.env</code> file and click Refresh.
-                    </div>
                 </div>
             </div>
 

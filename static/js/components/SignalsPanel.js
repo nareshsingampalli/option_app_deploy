@@ -36,15 +36,15 @@ class SignalsPanel extends BaseComponent {
     }
 
     createSignalCard(signal) {
-        const isCE = signal.instrument_type === 'CE';
+        const isCE = signal.option_type === 'CE';
         const colorClass = isCE ? 'signal-ce' : 'signal-pe';
         const confidence = signal.score > 80 ? 'High' : (signal.score > 50 ? 'Medium' : 'Low');
         const confidenceClass = `conf-${confidence.toLowerCase()}`;
 
         return `
-            <div class="signal-card ${colorClass}" onclick="app.focusStrike('${signal.strike}', '${signal.instrument_type}')">
+            <div class="signal-card ${colorClass}" onclick="app.focusStrike('${signal.strike}', '${signal.option_type}')">
                 <div class="signal-header">
-                    <span class="signal-strike">${signal.strike} ${signal.instrument_type}</span>
+                    <span class="signal-strike">${signal.strike} ${signal.option_type}</span>
                     <span class="signal-score">${signal.score}</span>
                 </div>
                 <div class="signal-type">${signal.signalType}</div>

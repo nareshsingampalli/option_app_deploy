@@ -69,6 +69,7 @@ class IntradayCandleFetcher(BaseCandleFetcher):
 
     @rate_limited(max_calls=UPSTOX_RATE_LIMIT_CALLS, period=UPSTOX_RATE_LIMIT_PERIOD)
     def _fetch(self, instrument_key: str, unit: str, interval: int, date_str: str | None = None) -> pd.DataFrame | None:
+        self._sync_token()
         import time
         now = time.time()
         cache_key = (instrument_key, interval)

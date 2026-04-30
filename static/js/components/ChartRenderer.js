@@ -34,13 +34,16 @@ class ChartRenderer extends UIComponent {
         return { color, dash: 'solid' };
     }
 
-    render(rawData, selectedInstruments, referenceSpotPrice = null) {
+    render(rawData, selectedInstruments, selectedMetrics = null, referenceSpotPrice = null) {
         if (!this.container || !rawData || rawData.length === 0) {
             if (this.container) this.container.innerHTML = '<div style="text-align:center; color:#94a3b8; padding: 40px;">Monitoring market data...</div>';
             return;
         }
 
-        const metrics = this.metricsMap[this.currentTab] || ['ltp'];
+        const metrics = selectedMetrics && selectedMetrics.length > 0 
+            ? selectedMetrics 
+            : (this.metricsMap[this.currentTab] || ['ltp']);
+        
         this.container.innerHTML = '';
 
         // Standardize Date Helper

@@ -37,79 +37,104 @@ function setupApp() {
     const intervalSelect = document.getElementById('interval-select');
 
     // -- Real-time Instrument List Observer ------------------
-    dataService.onInstrumentsChanged((instruments) => {
-        instrumentSelector.render(instruments, currentReferenceSpotPrice);
-    });
+    if (dataService && instrumentSelector) {
+        dataService.onInstrumentsChanged((instruments) => {
+            if (instrumentSelector.container) {
+                instrumentSelector.render(instruments, currentReferenceSpotPrice);
+            }
+        });
+    }
 
     // -- Data Subscription ------------------
-    dataService.subscribe((records, isInitial, status, errorCode) => {
-        if (!records || records.length === 0) return;
+    if (dataService) {
+        dataService.subscribe((records, isInitial, status, errorCode) => {
+            if (!records || records.length === 0) return;
 
-        const targetTime = timeSelector.time;
-        const matchingRow = records.find(r => r.date.includes(targetTime)) || records[records.length - 1];
-        const spotPrice = parseFloat(matchingRow.spot_price) || null;
-        currentReferenceSpotPrice = spotPrice;
+            const targetTime = timeSelector && timeSelector.container ? timeSelector.time : '';
+            const matchingRow = records.find(r => r.date.includes(targetTime)) || records[records.length - 1];
+            const spotPrice = parseFloat(matchingRow.spot_price) || null;
+            currentReferenceSpotPrice = spotPrice;
 
-        // Render signals
-        signalsPanel.update(records);
-        updateHeaderMetrics(records, spotPrice);
-        renderCharts();
+            // Render signals
+            if (signalsPanel && signalsPanel.container) signalsPanel.update(records);
+            updateHeaderMetrics(records, spotPrice);
+            renderCharts();
 
-        // Sync sidebar
-        const currentSymbol = symbolSelector.symbol;
-        const currentDate = (matchingRow && matchingRow.date) ? matchingRow.date.split(' ')[0] : '';
-        if (currentRenderedSymbol !== currentSymbol || currentRenderedDate !== currentDate) {
-            const symbols = [...new Set(records.map(r => r.symbol))].sort();
-            const info = symbols.map(sym => {
-                const row = records.find(r => r.symbol === sym);
-                return { symbol: sym, label: sym, strike: row.strike, type: row.option_type };
-            });
-            instrumentSelector.render(info, spotPrice);
-            currentRenderedSymbol = currentSymbol;
-            currentRenderedDate = currentDate;
-        } else {
-            instrumentSelector.recolor(spotPrice);
-        }
-    });
+            // Sync sidebar
+            if (instrumentSelector && instrumentSelector.container) {
+                const currentSymbol = symbolSelector.symbol;
+                const currentDate = (matchingRow && matchingRow.date) ? matchingRow.date.split(' ')[0] : '';
+                if (currentRenderedSymbol !== currentSymbol || currentRenderedDate !== currentDate) {
+                    const symbols = [...new Set(records.map(r => r.symbol))].sort();
+                    const info = symbols.map(sym => {
+                        const row = records.find(r => r.symbol === sym);
+                        return { symbol: sym, label: sym, strike: row.strike, type: row.option_type };
+                    });
+                    instrumentSelector.render(info, spotPrice);
+                    currentRenderedSymbol = currentSymbol;
+                    currentRenderedDate = currentDate;
+                } else {
+                    instrumentSelector.recolor(spotPrice);
+                }
+            }
+        });
+    }
 
     // -- Event Listeners ------------------
-    symbolSelector.onChange(async ({ exchange, symbol }) => {
-        timeSelector.setExchange(exchange);
-        dataService.setActiveSymbol(symbol);
-        dataService.clear();
-        dataService.initWebSocket(symbol);
-        fetchData();
-    });
+    if (symbolSelector && symbolSelector.container) {
+        symbolSelector.onChange(async ({ exchange, symbol }) => {
+            if (timeSelector && timeSelector.container) timeSelector.setExchange(exchange);
+            dataService.setActiveSymbol(symbol);
+            dataService.clear();
+            dataService.initWebSocket(symbol);
+            fetchData();
+        });
+    }
 
-    instrumentSelector.onChange(selected => {
-        renderCharts();
-    });
+    if (instrumentSelector && instrumentSelector.container) {
+        instrumentSelector.onChange(selected => {
+            renderCharts();
+        });
+    }
 
-    datePicker.addEventListener('change', () => {
-        updateIntervalAvailability();
-        fetchData();
-    });
+    if (datePicker) {
+        datePicker.addEventListener('change', () => {
+            updateIntervalAvailability();
+            fetchData();
+        });
+    }
 
-    document.getElementById('time-slider').addEventListener('input', () => {
-        timeSelector.updateDisplay();
-        fetchData(true);
-    });
+    const timeSlider = document.getElementById('time-slider');
+    if (timeSlider) {
+        timeSlider.addEventListener('input', () => {
+            if (timeSelector && timeSelector.container) {
+                timeSelector.updateDisplay();
+                fetchData(true);
+            }
+        });
+    }
 
-    intervalSelect.addEventListener('change', () => {
-        timeSelector.reconfigure(symbolSelector.exchange, parseInt(intervalSelect.value));
-        fetchData();
-    });
+    if (intervalSelect) {
+        intervalSelect.addEventListener('change', () => {
+            if (timeSelector && timeSelector.container) {
+                timeSelector.reconfigure(symbolSelector.exchange, parseInt(intervalSelect.value));
+            }
+            fetchData();
+        });
+    }
 
-    liveToggle.addEventListener('change', async () => {
-        isLiveMode = liveToggle.checked;
-        if (isLiveMode) {
-            datePicker.disabled = true;
-            dataService.initWebSocket(symbolSelector.symbol);
-        } else {
-            datePicker.disabled = false;
-            dataService.stopLiveMode(symbolSelector.symbol);
-        }
-    });
+    if (liveToggle) {
+        liveToggle.addEventListener('change', async () => {
+            isLiveMode = liveToggle.checked;
+            if (isLiveMode) {
+                if (datePicker) datePicker.disabled = true;
+                dataService.initWebSocket(symbolSelector.symbol);
+            } else {
+                if (datePicker) datePicker.disabled = false;
+                dataService.stopLiveMode(symbolSelector.symbol);
+            }
+        });
+    }
 
     // Initial load
     initLoad();
@@ -122,19 +147,28 @@ async function fetchData(silent = false) {
 function buildParams() {
     const datePicker = document.getElementById('date-picker');
     const intervalSelect = document.getElementById('interval-select');
+    const nextExpiryChk = document.getElementById('next-expiry-chk');
+    
+    const dateValue = datePicker ? datePicker.value : new Date().toLocaleDateString('en-CA');
+    const intervalValue = intervalSelect ? intervalSelect.value : '15';
+    
     return {
         exchange: symbolSelector.exchange,
         symbol: symbolSelector.symbol,
-        date: datePicker.value,
-        time: timeSelector.time,
-        interval: intervalSelect.value,
-        next_expiry: document.getElementById('next-expiry-chk')?.checked ? 'true' : 'false',
+        date: dateValue,
+        time: timeSelector && timeSelector.container ? timeSelector.time : '',
+        interval: intervalValue,
+        next_expiry: nextExpiryChk?.checked ? 'true' : 'false',
         live: isLiveMode ? 'true' : 'false'
     };
 }
 
 function renderCharts() {
-    chartRenderer.render(dataService.rawData, instrumentSelector.selected(), currentReferenceSpotPrice);
+    if (chartRenderer && chartRenderer.container && instrumentSelector) {
+        const selected = instrumentSelector.container ? instrumentSelector.selected() : [];
+        const metrics = metricSelector && metricSelector.container ? metricSelector.selected() : null;
+        chartRenderer.render(dataService.rawData, selected, metrics, currentReferenceSpotPrice);
+    }
 }
 
 function updateHeaderMetrics(records, spotPrice) {
@@ -154,9 +188,23 @@ function updateIntervalAvailability() {
 
 async function initLoad() {
     const datePicker = document.getElementById('date-picker');
-    datePicker.value = new Date().toLocaleDateString('en-CA');
+    if (datePicker) {
+        datePicker.value = new Date().toLocaleDateString('en-CA');
+    }
+    
+    // Ensure WebSocket is initialized for the default symbol
+    if (dataService && symbolSelector) {
+        dataService.initWebSocket(symbolSelector.symbol);
+    }
+
     updateIntervalAvailability();
     fetchData();
+    
+    // Hide loading overlay once initial fetch is triggered
+    const loadingEl = document.getElementById('loading');
+    if (loadingEl) {
+        setTimeout(() => loadingEl.style.display = 'none', 1000);
+    }
 }
 
 async function refreshToken() {
@@ -188,5 +236,22 @@ window.app = {
     focusStrike(strike, type) {
         this.switchTab('overview');
         // Logic to select strike...
+    },
+    filterInstruments(type) {
+        if (!instrumentSelector) return;
+        const states = {
+            all: type === 'all',
+            none: type === 'clear',
+            ce: type === 'ce',
+            pe: type === 'pe',
+            intraday: type === 'intraday',
+            scalping: type === 'scalping'
+        };
+        instrumentSelector.applySelection(states, currentReferenceSpotPrice);
+        
+        // Update button active states
+        document.querySelectorAll('.instrument-filters .btn').forEach(btn => {
+            btn.classList.toggle('active', btn.innerText.toLowerCase().includes(type));
+        });
     }
 };

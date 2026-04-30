@@ -187,6 +187,7 @@ class InstrumentSelector extends UIComponent {
     }
 
     selected() {
+        if (!this.container) return [];
         return Array.from(
             this.container.querySelectorAll('.instrument-cb:checked')
         ).map(cb => cb.value);
