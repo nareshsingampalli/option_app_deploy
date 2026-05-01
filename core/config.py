@@ -63,11 +63,6 @@ SCHEDULER_HOURS: dict[str, dict] = {
     "MCX": {"start": "09:00:20", "end": "23:59:00", "prefix": "mcx"},
 }
 
-# ── Strike selection ─────────────────────────────────────────────────────────
-DEFAULT_NUM_STRIKES = 3      # strikes on each side (NSE/BSE)
-MCX_NUM_STRIKES     = 2      # strikes on each side (MCX)
-MCX_STRIKE_STEP     = 50     # ATM rounding step for MCX
-
 # ── API configuration ────────────────────────────────────────────────────────
 # Single source of truth for the Upstox API credentials.
 # The dashboard uses /api/refresh-token to reload these from the .env file at runtime.

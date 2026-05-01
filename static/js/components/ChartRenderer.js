@@ -73,13 +73,13 @@ class ChartRenderer extends UIComponent {
             }
         }
 
-        let atmStrike = null;
+        let atmCE = null;
+        let atmPE = null;
         if (useSpotPrice !== null) {
-            const allStrikes = [...new Set(rawData.map(r => parseFloat(r.strike)).filter(s => !isNaN(s)))];
+            const allStrikes = [...new Set(rawData.map(r => parseFloat(r.strike)).filter(s => !isNaN(s)))].sort((a, b) => a - b);
             if (allStrikes.length > 0) {
-                atmStrike = allStrikes.reduce((prev, curr) => 
-                    Math.abs(curr - useSpotPrice) < Math.abs(prev - useSpotPrice) ? curr : prev
-                );
+                atmCE = allStrikes.filter(s => s <= useSpotPrice).pop() || allStrikes[0];
+                atmPE = allStrikes.filter(s => s >= useSpotPrice).shift() || allStrikes[allStrikes.length - 1];
             }
         }
 
@@ -91,27 +91,25 @@ class ChartRenderer extends UIComponent {
                 if (!grouped[row.symbol]) {
                     grouped[row.symbol] = { rows: [] };
 
-                    const baseMatch = row.symbol.match(/^[A-Z]+/);
-                    const baseSym = baseMatch ? baseMatch[0] : '';
                     const strikeStr = row.strike || '';
                     const strikeVal = parseFloat(strikeStr);
+                    const optType   = row.option_type || (row.symbol.includes('CE') ? 'CE' : 'PE');
+                    const isCE      = optType === 'CE';
                     
                     let moneyNess = '';
-                    if (atmStrike !== null && !isNaN(strikeVal)) {
-                        const isCE = row.symbol.includes('CE');
-                        const isPE = row.symbol.includes('PE');
-                        
-                        if (strikeVal === atmStrike) {
+                    const targetAtm = isCE ? atmCE : atmPE;
+                    if (targetAtm !== null && !isNaN(strikeVal)) {
+                        if (strikeVal === targetAtm) {
                             moneyNess = ' (A)';
                         } else if (isCE) {
-                            moneyNess = strikeVal < atmStrike ? ' (I)' : ' (O)';
-                        } else if (isPE) {
-                            moneyNess = strikeVal > atmStrike ? ' (I)' : ' (O)';
+                            moneyNess = strikeVal < targetAtm ? ' (I)' : ' (O)';
+                        } else {
+                            moneyNess = strikeVal > targetAtm ? ' (I)' : ' (O)';
                         }
                     }
 
-                    // Generate clean label: NAME + STRIKE + MONEYNESS
-                    symbolLabels[row.symbol] = `${baseSym} ${strikeStr}${moneyNess}`.trim();
+                    // Generate clean label: STRIKE + TYPE + MONEYNESS
+                    symbolLabels[row.symbol] = `${strikeStr} ${optType}${moneyNess}`.trim();
                 }
                 grouped[row.symbol].rows.push(row);
             }
@@ -154,7 +152,7 @@ class ChartRenderer extends UIComponent {
                             y: grouped[sym].rows.map(r => r[metric]),
                             mode: 'lines+markers',
                             marker: { size: 4 },
-                            name: symbolLabels[sym] || sym,
+                            name: `<span style="color:${color}">${symbolLabels[sym] || sym}</span>`,
                             isCE: isCE, // Store for sorting
                             line: { dash, width: 2, color }
                         };
@@ -205,19 +203,8 @@ class ChartRenderer extends UIComponent {
                                 let moneyPart = parts[parts.length - 1];
                                 
                                 // Fallback if name is differently formatted
-                                if (!moneyPart.includes('(')) {
-                                    strikePart = parts[parts.length - 1];
-                                    moneyPart = '';
-                                }
-
-                                let finalHtml = t.name;
-                                if (moneyPart && /^\([\d.]+\)$/.test(strikePart.replace(/[^\d.]/g, ''))) {
-                                    finalHtml = `<span style="color:${lineColor}">${strikePart}</span> <span style="color:${moneyColor}">${moneyPart}</span>`;
-                                } else {
-                                    // Robust fallback: just color any (A/I/O) in the string
-                                    finalHtml = t.name.replace(/^[A-Z0-9 ]+\s+([\d.]+)/, `<span style="color:${lineColor}">$1</span>`);
-                                    finalHtml = finalHtml.replace(/(\((A|I|O)\))/, `<span style="color:${moneyColor}">$1</span>`);
-                                }
+                                // Color the entire label with the line color for better visual mapping
+                                let finalHtml = `<span style="color:${lineColor}">${t.name}</span>`;
 
                                 chartAnnotations.push({
                                     x: dtStr,

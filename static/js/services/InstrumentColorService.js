@@ -52,32 +52,30 @@ window.InstrumentColorService = (() => {
             return;
         }
 
-        // ── Find ATM strike = the single strike closest to spot (same logic as ChartRenderer)
-        const allStrikes = [...new Set(
+        // ── Find ATM strikes (Type-specific: CE=round-down, PE=round-up) ─────────
+        const strikes = [...new Set(
             instrumentInfo
                 .filter(i => i.strike != null)
                 .map(i => parseFloat(i.strike))
                 .filter(k => !isNaN(k))
-        )];
-        const atmStrike = allStrikes.length
-            ? allStrikes.reduce((best, k) =>
-                Math.abs(k - spotPrice) < Math.abs(best - spotPrice) ? k : best
-            )
-            : null;
-        const isATM = (strike) => atmStrike !== null && parseFloat(strike) === atmStrike;
+        )].sort((a, b) => a - b);
+
+        const atmCE = strikes.length ? (strikes.filter(s => s <= spotPrice).pop() || strikes[0]) : null;
+        const atmPE = strikes.length ? (strikes.filter(s => s >= spotPrice).shift() || strikes[strikes.length - 1]) : null;
 
         ['CE', 'PE'].forEach(type => {
-            const isCE  = type === 'CE';
-            const group = instrumentInfo.filter(i => i.type === type && i.strike != null);
+            const isCE     = type === 'CE';
+            const targetAtm = isCE ? atmCE : atmPE;
+            const group     = instrumentInfo.filter(i => i.type === type && i.strike != null);
 
-            const atm = group.filter(i => isATM(i.strike));
+            const atm = group.filter(i => parseFloat(i.strike) === targetAtm);
             const itm = group.filter(i => {
                 const k = parseFloat(i.strike);
-                return !isATM(i.strike) && (isCE ? k < spotPrice : k > spotPrice);
+                return k !== targetAtm && (isCE ? k < targetAtm : k > targetAtm);
             });
             const otm = group.filter(i => {
                 const k = parseFloat(i.strike);
-                return !isATM(i.strike) && (isCE ? k > spotPrice : k < spotPrice);
+                return k !== targetAtm && (isCE ? k > targetAtm : k < targetAtm);
             });
 
             // ATM → yellow (both CE and PE)

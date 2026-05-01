@@ -16,8 +16,8 @@ class InstrumentSelector extends UIComponent {
     }
 
     onChange(fn) { this._onChange.push(fn); }
-    _notify()    { this._onChange.forEach(fn => fn(this.selected())); }
-    
+    _notify() { this._onChange.forEach(fn => fn(this.selected())); }
+
     clear() {
         if (this.container) this.container.innerHTML = '<div style="text-align:center; padding:10px; color:#999; font-size:12px;">Loading instruments...</div>';
         this._lastInstrumentInfo = null;
@@ -42,14 +42,22 @@ class InstrumentSelector extends UIComponent {
             // ── Moneyness chip — color from InstrumentColorService ───────────
             let mTag = '';
             if (inst.strike != null && spotPrice && inst.type) {
-                const k       = parseFloat(inst.strike);
-                const isCE    = inst.type === 'CE';
-                const isATM   = Math.abs(k - spotPrice) / spotPrice < 0.0015;
-                const isITM   = !isATM && (isCE ? k < spotPrice : k > spotPrice);
+                const k = parseFloat(inst.strike);
+                const isCE = inst.type === 'CE';
+
+                // ATM detection logic (CE=down, PE=up)
+                // We calculate this relative to all strikes in the current info set
+                const allStrikes = [...new Set(instrumentInfo.map(x => parseFloat(x.strike)).filter(s => !isNaN(s)))].sort((a, b) => a - b);
+                const atmCE = allStrikes.filter(s => s <= spotPrice).pop() || allStrikes[0];
+                const atmPE = allStrikes.filter(s => s >= spotPrice).shift() || allStrikes[allStrikes.length - 1];
+
+                const targetAtm = isCE ? atmCE : atmPE;
+                const isATM = k === targetAtm;
+                const isITM = !isATM && (isCE ? k < targetAtm : k > targetAtm);
                 let mLabel;
-                if (isATM)      mLabel = 'ATM';
+                if (isATM) mLabel = 'ATM';
                 else if (isITM) mLabel = 'ITM';
-                else            mLabel = 'OTM';
+                else mLabel = 'OTM';
 
                 // Badge uses the moneyness color as its text + border color
                 let bgOverlay = color.replace(/,\s*[\d.]+\s*\)$/, ', 0.12)');
@@ -68,7 +76,7 @@ class InstrumentSelector extends UIComponent {
                            data-strike="${inst.strike ?? ''}"
                            data-type="${inst.type ?? ''}"
                            checked style="margin-right:3px;flex-shrink:0;">
-                    <span style="white-space:nowrap;">${inst.label || inst.symbol}</span>
+                   <span style="white-space:nowrap;">${inst.strike} ${inst.type}</span>
                     ${mTag}
                 </label>`;
             this.container.appendChild(div);
@@ -77,6 +85,11 @@ class InstrumentSelector extends UIComponent {
         this.container.querySelectorAll('.instrument-cb').forEach(cb => {
             cb.addEventListener('change', () => this._notify());
         });
+
+        // Center ATM strike on initial load/refresh
+        if (spotPrice) {
+            requestAnimationFrame(() => this._scrollToAtm(spotPrice));
+        }
     }
 
     // ── Re-color in place (when spot updates without a new instrument load) ──
@@ -85,14 +98,14 @@ class InstrumentSelector extends UIComponent {
         InstrumentColorService.build(this._lastInstrumentInfo, spotPrice);
 
         this.container.querySelectorAll('.instrument-cb').forEach(cb => {
-            const sym   = cb.value;
+            const sym = cb.value;
             const color = InstrumentColorService.get(sym);
             const label = cb.closest('label');
             if (!label) return;
 
-            const isCE       = cb.dataset.type === 'CE';
+            const isCE = cb.dataset.type === 'CE';
             const moneyColor = isCE ? '#26a641' : '#df3333';
-            
+
             // Revert name color to default (remove inline style)
             const nameSpan = label.querySelector('span:not([style*="font-weight:700"])');
             if (nameSpan) nameSpan.style.color = '';
@@ -102,15 +115,20 @@ class InstrumentSelector extends UIComponent {
             if (badge) {
                 let bgOverlay = color.replace(/,\s*[\d.]+\s*\)$/, ', 0.12)');
                 if (bgOverlay === color) { bgOverlay = color + '1a'; }
-                badge.style.color           = color;
-                badge.style.borderColor     = color;
+                badge.style.color = color;
+                badge.style.borderColor = color;
                 badge.style.backgroundColor = bgOverlay;
-                
-                // Redetermine label 
-                const strike    = parseFloat(cb.dataset.strike);
+
+                // Redetermine label (Type-specific: CE=down, PE=up)
+                const strike = parseFloat(cb.dataset.strike);
                 if (!isNaN(strike)) {
-                    const isATM = Math.abs(strike - spotPrice) / spotPrice < 0.0015;
-                    const isITM = !isATM && (isCE ? strike < spotPrice : strike > spotPrice);
+                    const allStrikes = [...new Set(this._lastInstrumentInfo.map(x => parseFloat(x.strike)).filter(s => !isNaN(s)))].sort((a, b) => a - b);
+                    const atmCE = allStrikes.filter(s => s <= spotPrice).pop() || allStrikes[0];
+                    const atmPE = allStrikes.filter(s => s >= spotPrice).shift() || allStrikes[allStrikes.length - 1];
+
+                    const targetAtm = isCE ? atmCE : atmPE;
+                    const isATM = strike === targetAtm;
+                    const isITM = !isATM && (isCE ? strike < targetAtm : strike > targetAtm);
                     badge.textContent = isATM ? 'ATM' : (isITM ? 'ITM' : 'OTM');
                 }
             }
@@ -140,47 +158,57 @@ class InstrumentSelector extends UIComponent {
                 });
             }
         } else {
-            const isIntra  = states.intraday;
-            const isScalp  = states.scalping;
+            const isIntra = states.intraday;
+            const isScalp = states.scalping;
             const isDynamic = isIntra || isScalp;
-            const countMap  = isScalp ? { atm: 1, otm: 1, itm: 1 } : { atm: 1, otm: 2, itm: 2 };
+            // nSide: how many strikes to pick on each side of ATM
+            // Scalping: ATM ± 1 = 3 strikes  |  Intraday: ATM ± 2 = 5 strikes
+            const nSide = isScalp ? 1 : 2;
 
-            const groups = {
-                CE: checkboxes.filter(cb => cb.dataset.type === 'CE' && states.ce),
-                PE: checkboxes.filter(cb => cb.dataset.type === 'PE' && states.pe),
-            };
+            // Determine which types are active
+            const useCE = states.ce || (!states.ce && !states.pe);
+            const usePE = states.pe || (!states.ce && !states.pe);
 
-            if (!states.ce && !states.pe) {
-                groups.CE = checkboxes.filter(cb => cb.dataset.type === 'CE');
-                groups.PE = checkboxes.filter(cb => cb.dataset.type === 'PE');
-            }
+            if (!isDynamic) {
+                // Non-dynamic: check everything in the active type groups
+                checkboxes.forEach(cb => {
+                    if (cb.dataset.type === 'CE' && !useCE) return;
+                    if (cb.dataset.type === 'PE' && !usePE) return;
+                    cb.checked = true;
+                });
+            } else if (spotPrice) {
+                // ── Strike-centric selection ─────────────────────────────────
+                const allStrikes = [...new Set(
+                    checkboxes.map(cb => parseFloat(cb.dataset.strike)).filter(s => !isNaN(s))
+                )].sort((a, b) => a - b);
 
-            Object.keys(groups).forEach(optType => {
-                const group = groups[optType];
-                if (group.length === 0) return;
+                if (allStrikes.length > 0) {
+                    const atmCE = allStrikes.filter(s => s <= spotPrice).pop() || allStrikes[0];
+                    const atmPE = allStrikes.filter(s => s >= spotPrice).shift() || allStrikes[allStrikes.length - 1];
+                    
+                    const idxCE = allStrikes.indexOf(atmCE);
+                    const idxPE = allStrikes.indexOf(atmPE);
 
-                if (!isDynamic) {
-                    group.forEach(cb => cb.checked = true);
-                } else if (spotPrice) {
-                    group.sort((a, b) =>
-                        Math.abs(parseFloat(a.dataset.strike) - spotPrice) -
-                        Math.abs(parseFloat(b.dataset.strike) - spotPrice)
-                    );
-                    const atm    = group[0];
-                    if (atm) atm.checked = true;
-                    const others  = group.slice(1);
-                    const itmList = others.filter(cb => {
-                        const k = parseFloat(cb.dataset.strike);
-                        return optType === 'CE' ? k < spotPrice : k > spotPrice;
+                    const ceFrom = Math.max(0, idxCE - nSide);
+                    const ceTo   = Math.min(allStrikes.length - 1, idxCE + nSide);
+                    const ceStrikes = new Set(allStrikes.slice(ceFrom, ceTo + 1));
+
+                    const peFrom = Math.max(0, idxPE - nSide);
+                    const peTo   = Math.min(allStrikes.length - 1, idxPE + nSide);
+                    const peStrikes = new Set(allStrikes.slice(peFrom, peTo + 1));
+
+                    checkboxes.forEach(cb => {
+                        const type = cb.dataset.type;
+                        const k    = parseFloat(cb.dataset.strike);
+                        
+                        if (type === 'CE') {
+                            if (useCE && ceStrikes.has(k)) cb.checked = true;
+                        } else if (type === 'PE') {
+                            if (usePE && peStrikes.has(k)) cb.checked = true;
+                        }
                     });
-                    const otmList = others.filter(cb => {
-                        const k = parseFloat(cb.dataset.strike);
-                        return optType === 'CE' ? k > spotPrice : k < spotPrice;
-                    });
-                    itmList.forEach((cb, i) => { if (i < countMap.itm) cb.checked = true; });
-                    otmList.forEach((cb, i) => { if (i < countMap.otm) cb.checked = true; });
                 }
-            });
+            }
         }
 
         if (notify) this._notify();
@@ -190,5 +218,30 @@ class InstrumentSelector extends UIComponent {
         return Array.from(
             this.container.querySelectorAll('.instrument-cb:checked')
         ).map(cb => cb.value);
+    }
+
+    /** Center the closest strike to spotPrice in the sidebar viewport */
+    _scrollToAtm(spotPrice) {
+        if (!this.container || !spotPrice) return;
+        const checkboxes = Array.from(this.container.querySelectorAll('.instrument-cb'));
+        if (checkboxes.length === 0) return;
+
+        // Find closest strike row
+        const targetCb = checkboxes.reduce((prev, curr) => {
+            const pS = parseFloat(prev.dataset.strike) || 0;
+            const cS = parseFloat(curr.dataset.strike) || 0;
+            return Math.abs(cS - spotPrice) < Math.abs(pS - spotPrice) ? curr : prev;
+        });
+
+        const row = targetCb.closest('.control-group');
+        if (row) {
+            const containerHeight = this.container.clientHeight;
+            const rowOffset = row.offsetTop;
+            const rowHeight = row.offsetHeight;
+            this.container.scrollTo({
+                top: rowOffset - (containerHeight / 2) + (rowHeight / 2),
+                behavior: 'smooth'
+            });
+        }
     }
 }

@@ -9,7 +9,7 @@ Flow
 2. Find FUT instruments for the commodity -> sort_values(expiry ASC) -> take first = spot_key.
 3. Apply D-1 rule: if today is within 1 day of expiry, use next expiry.
 4. Use precise_pattern to filter CE/PE instruments for that expiry.
-5. Select strikes around ATM (step = MCX_STRIKE_STEP = 50).
+5. Select strikes around ATM (step detected dynamically).
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ import numpy as np
 import pandas as pd
 import requests
 
-from core.config import MCX_INSTRUMENT_URL, DEFAULT_NUM_STRIKES, MCX_NUM_STRIKES
+from core.config import MCX_INSTRUMENT_URL
 from core.exceptions import InstrumentResolutionError
 from resolvers.base import Instrument, InstrumentResolver
 
@@ -40,7 +40,7 @@ class MCXInstrumentResolver(InstrumentResolver):
         symbol:         str,
         spot_price:     float,
         reference_date: str,
-        num_strikes:    int = MCX_NUM_STRIKES,
+        num_strikes:    int = 2,
         expiry_offset:  int = 0,
     ) -> tuple[list[Instrument], Optional[datetime], bool]:
         commodity = symbol.upper()

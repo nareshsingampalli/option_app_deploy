@@ -122,55 +122,60 @@ dataService.subscribe((records, isInitial, status, errorCode) => {
     }
 
     // ── Sync Instrument List — Automatic Side-Bar Update ───────────────────
-    const targetTime = timeSelector.time;
-    // Find the specific record for our slider time to get the correct spot price
-    const matchingRow = records.find(r => r.date.includes(targetTime)) || records[records.length - 1];
-    const spotPrice = parseFloat(matchingRow.spot_price) || null;
-    currentReferenceSpotPrice = spotPrice; // Store for selection changes
+    // Always use the LAST record's spot for ATM/instrument resolution.
+    // (Slider no longer drives data loads — it's display-only.)
+    const lastRecord = records[records.length - 1];
+    const spotPrice = parseFloat(lastRecord && lastRecord.spot_price) || null;
+    currentReferenceSpotPrice = spotPrice;
+
+    // Update spot price display
+    const spotEl = document.getElementById('spot-price-display');
+    if (spotEl && spotPrice) {
+        spotEl.innerHTML = `<strong>Spot Price:</strong> ${spotPrice.toFixed(2)}`;
+    }
 
     const currentSymbol = symbolSelector.symbol;
-    const currentDate = (matchingRow && matchingRow.date) ? matchingRow.date.split(' ')[0] : '';
+    const currentDate = (lastRecord && lastRecord.date) ? lastRecord.date.split(' ')[0] : '';
 
-    // Extract candidate instrument info from the data
-    const symbols = [...new Set(records.map(r => r.symbol))].sort();
+    // Extract instrument info from data, sorted by strike numerically
+    const symbols = [...new Set(records.map(r => r.symbol))];
     const currentInstrumentInfo = symbols.map(sym => {
         const row = records.find(r => r.symbol === sym);
-        let label = sym;
-        let strike = null;
-        let type = null;
+        let label = sym, strike = null, type = null;
         if (row && row.strike && row.option_type) {
             const baseMatch = sym.match(/^[A-Z]+/);
             const baseSym = baseMatch ? baseMatch[0] : '';
-            label = `${baseSym} ${row.strike} ${row.option_type}`;
+            label  = `${baseSym} ${row.strike} ${row.option_type}`;
             strike = row.strike;
-            type = row.option_type;
+            type   = row.option_type;
         }
-        return { symbol: sym, label: label, strike: strike, type: type };
+        return { symbol: sym, label, strike, type };
+    });
+    // Sort by strike numerically so ATM is visually centred
+    currentInstrumentInfo.sort((a, b) => {
+        const sA = parseFloat(a.strike) || 0;
+        const sB = parseFloat(b.strike) || 0;
+        if (sA !== sB) return sA - sB;
+        return (a.type || '').localeCompare(b.type || ''); // CE before PE
     });
 
     const hasInstruments = document.querySelectorAll('.instrument-cb').length > 0;
 
-    // Force re-render if it's initial, or no instruments, OR the set of strikes has changed
+    // Re-render if instruments changed
     const existingSymbols = (instrumentSelector._lastInstrumentInfo || []).map(x => x.symbol);
-    const strikesShifted = existingSymbols.length !== symbols.length ||
+    const strikesShifted  = existingSymbols.length !== symbols.length ||
         !symbols.every(s => existingSymbols.includes(s));
 
+    // ATM-shift check using unique strikes (deduplicate CE/PE pairs for clean center)
     const strikes = currentInstrumentInfo.map(x => parseFloat(x.strike)).filter(s => !isNaN(s));
-
-    // ── Aggressive Refresh: If the ATM strike shifts, re-center the whole list ─
     let isAtmShifted = false;
     if (strikes.length > 0 && spotPrice) {
-        // Find the strike in our current list that is closest to the spot
-        const currentAtm = strikes.reduce((prev, curr) =>
-            Math.abs(curr - spotPrice) < Math.abs(prev - spotPrice) ? curr : prev
-        );
-        // Find the strike that is currently at the center of our list
-        const centerIdx = Math.floor(strikes.length / 2);
-        const centerStrike = strikes[centerIdx];
-
-        // If the price has moved so much that a different strike is now the center-point
-        // of our resolution, we trigger a re-fetch to get new OTM/ITMs around it.
+        const uniqueStrikes = [...new Set(strikes)].sort((a, b) => a - b);
+        const currentAtm   = uniqueStrikes.reduce((p, c) =>
+            Math.abs(c - spotPrice) < Math.abs(p - spotPrice) ? c : p);
+        const centerStrike = uniqueStrikes[Math.floor(uniqueStrikes.length / 2)];
         isAtmShifted = (currentAtm !== centerStrike);
+        console.log(`[App] ATM: spot=${spotPrice} atm=${currentAtm} center=${centerStrike} shifted=${isAtmShifted}`);
     }
 
     const needsRefresh = isInitial || !hasInstruments ||
@@ -181,23 +186,12 @@ dataService.subscribe((records, isInitial, status, errorCode) => {
     if (needsRefresh) {
         try {
             if (currentInstrumentInfo.length > 0) {
-                console.log(`[App] Instrument list shifted or new load (Spot: ${spotPrice}). Syncing sidebar...`);
+                console.log(`[App] Instrument list refresh (Spot: ${spotPrice}).`);
                 instrumentSelector.render(currentInstrumentInfo, spotPrice);
-
-                // Update Sidebar Labels: Spot Price & Date
-                const spotEl = document.getElementById('spot-price-display');
-                if (spotEl) {
-                    spotEl.innerHTML = `<strong>Spot Price:</strong> ${spotPrice.toFixed(2)}`;
-                    spotEl.style.color = '#1e88e5'; // Highlight when syncing
-                }
-
                 currentRenderedSymbol = currentSymbol;
-                currentRenderedDate = currentDate;
-
-                // After full render, always apply current filters (Scalping, etc.)
-                if (window.applyCurrentFilters) {
-                    window.applyCurrentFilters(false);
-                }
+                currentRenderedDate   = currentDate;
+                // Apply current filter (Scalping/Intraday/All) based on new ATM
+                if (window.applyCurrentFilters) window.applyCurrentFilters(false);
             }
         } catch (e) {
             console.error("[App] Instrument list sync error:", e);
@@ -212,11 +206,7 @@ dataService.subscribe((records, isInitial, status, errorCode) => {
         }
     }
 
-    // 2. Sync slider end to the actual last candle timestamp in the data.
-    //    This ensures NSE/MCX slider shows the real last data time (e.g. 15:15,
-    //    23:35) rather than a hardcoded market close. setDataEndTime() also
-    //    adjusts slider.max so the user can scrub all the way to the last candle.
-    const lastRecord = records[records.length - 1];
+    // 2. Sync slider end to actual last candle timestamp
     if (lastRecord && lastRecord.date && timeSelector) {
         timeSelector.setDataEndTime(lastRecord.date);
     }
@@ -393,22 +383,36 @@ datePicker.addEventListener('change', () => {
 });
 
 
-// ── Time Slider Debounce Logic ──────────────────────────────────────────────
+// ── Time Slider Logic ───────────────────────────────────────────────────────
 let sliderDebounceTimer = null;
 document.getElementById('time-slider').addEventListener('input', () => {
     timeSelector.updateDisplay();
 
-    // Clear existing timer
-    if (sliderDebounceTimer) clearTimeout(sliderDebounceTimer);
+    // Live mode: slider is display-only (backend drives data, not slider time)
+    if (isLiveMode) return;
 
-    // Wait for 200ms of stillness before fetching (MUCH snappier)
+    // Historical mode: only update the spot price label from existing data.
+    // No fetchData, no recolor, no instrument list changes.
+    if (sliderDebounceTimer) clearTimeout(sliderDebounceTimer);
     sliderDebounceTimer = setTimeout(() => {
-        fetchData(true); // silent = true to prevent clearing/skeletons during slide
+        const records = dataService.rawData;
+        if (!records || records.length === 0) return;
+
+        const targetTime = timeSelector.time; // e.g. "13:45"
+        const matchingRow = records.find(r => r.date && r.date.includes(targetTime))
+                         || records[records.length - 1];
+        const spotAtTime = parseFloat(matchingRow && matchingRow.spot_price) || null;
+
+        if (spotAtTime) {
+            const spotEl = document.getElementById('spot-price-display');
+            if (spotEl) spotEl.innerHTML = `<strong>Spot Price:</strong> ${spotAtTime.toFixed(2)}`;
+            
+            // Update ATM/ITM/OTM labels dynamically without re-centering the list
+            instrumentSelector.recolor(spotAtTime);
+        }
     }, 200);
 });
 
-// Remove the old 'change' listener since we now use debounced 'input'
-// document.getElementById('time-slider').addEventListener('change', fetchData);
 
 document.getElementById('interval-select').addEventListener('change', (e) => {
     e.target.dataset.userHardSet = "true";
