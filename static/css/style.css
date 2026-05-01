@@ -121,11 +121,12 @@ input:checked+.slider-toggle:before {
 }
 
 .scrollable-list {
-    max-height: 250px;
+    max-height: 400px;
     overflow-y: auto;
     border: 1px solid #eee;
     padding: 5px;
     border-radius: 4px;
+    position: relative; /* Ensure offsetTop is relative to this container */
     scrollbar-width: none; /* Firefox */
     -ms-overflow-style: none;  /* IE and Edge */
 }

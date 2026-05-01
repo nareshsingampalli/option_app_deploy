@@ -63,9 +63,8 @@ class NSEActiveResolver(InstrumentResolver):
         expiry_df = opts[opts["expiry"] == target_expiry].copy()
         strikes   = sorted(expiry_df["strike_price"].unique())
         idx       = int(np.abs(np.array(strikes) - spot_price).argmin())
-        # User requested asymmetric window: 2 strikes below ATM, 4 strikes above ATM (Total 7)
-        # For spot 24000: [23900, 23950, 24000, 24050, 24100, 24150, 24200]
-        selected  = strikes[max(0, idx - 2): idx + 5]
+        # Standardized symmetric window: 4 strikes below ATM, 4 strikes above ATM (Total 8 strikes / 16 instruments)
+        selected  = strikes[max(0, idx - 3): idx + 5]
 
         instruments: list[Instrument] = []
         for strike in selected:

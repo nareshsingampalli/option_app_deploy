@@ -88,7 +88,8 @@ class InstrumentSelector extends UIComponent {
 
         // Center ATM strike on initial load/refresh
         if (spotPrice) {
-            requestAnimationFrame(() => this._scrollToAtm(spotPrice));
+            // Small timeout to ensure layout is complete for offsetTop calculation
+            setTimeout(() => this._scrollToAtm(spotPrice), 100);
         }
     }
 
@@ -235,13 +236,7 @@ class InstrumentSelector extends UIComponent {
 
         const row = targetCb.closest('.control-group');
         if (row) {
-            const containerHeight = this.container.clientHeight;
-            const rowOffset = row.offsetTop;
-            const rowHeight = row.offsetHeight;
-            this.container.scrollTo({
-                top: rowOffset - (containerHeight / 2) + (rowHeight / 2),
-                behavior: 'smooth'
-            });
+            row.scrollIntoView({ block: 'center', behavior: 'smooth' });
         }
     }
 }

@@ -19,6 +19,12 @@ def _timeout_handler(signum, frame):
 
 class HistoricalCandleFetcher(BaseCandleFetcher):
     """Fetches historical candles; auto-chunks minute data into 30-day windows."""
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        print("\n" + "="*50)
+        print("  [SYSTEM] HistoricalCandleFetcher LOADED (v2: Intraday Spot Fix)")
+        print("="*50 + "\n")
 
     @rate_limited(max_calls=UPSTOX_RATE_LIMIT_CALLS, period=UPSTOX_RATE_LIMIT_PERIOD)
     def fetch_single(
@@ -162,7 +168,7 @@ class HistoricalCandleFetcher(BaseCandleFetcher):
         spot_price = None
         target_dt  = datetime.strptime(date_str, "%Y-%m-%d")
 
-        if time_str:
+        if True: # Always try intraday first to get the most accurate "last" price
             df = self.fetch_single(spot_key, "minutes", self.interval, date_str, date_str)
             if df is None or df.empty:
                 df = self.fetch_single(spot_key, "minutes", 1, date_str, date_str)
@@ -171,15 +177,18 @@ class HistoricalCandleFetcher(BaseCandleFetcher):
             
             if df is not None and not df.empty:
                 try:
-                    # Target time (naive)
-                    target_full = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
-                    
-                    # Convert DF index to naive for comparison
-                    df_naive = df.index.tz_localize(None) if hasattr(df.index, "tz_localize") else df.index
-                    
-                    idx = df_naive.get_indexer([target_full], method="nearest")[0]
-                    spot_price = float(df.iloc[idx]["close"])
-                    print(f"[HistoricalFetcher] Spot at {df.index[idx]}: {spot_price}")
+                    if time_str:
+                        # Target time (naive)
+                        target_full = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
+                        # Convert DF index to naive for comparison
+                        df_naive = df.index.tz_localize(None) if hasattr(df.index, "tz_localize") else df.index
+                        idx = df_naive.get_indexer([target_full], method="nearest")[0]
+                        spot_price = float(df.iloc[idx]["close"])
+                        print(f"[HistoricalFetcher] Spot at {df.index[idx]}: {spot_price}")
+                    else:
+                        # Use the absolute last candle of the day
+                        spot_price = float(df["close"].iloc[-1])
+                        print(f"[HistoricalFetcher] Spot at EOD (last candle): {spot_price}")
                 except Exception as e:
                     print(f"[HistoricalFetcher] Time lookup error: {e}")
 

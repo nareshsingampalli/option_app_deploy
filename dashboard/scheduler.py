@@ -129,7 +129,7 @@ def _main_scheduler_loop():
             continue
 
         any_in_hours = False
-        # Simple trading day check: exclude weekends. Holidays handled by empty fetch responses.
+        # Simple trading day check: exclude weekends.
         is_trading_day = now.weekday() < 5
         
         if is_trading_day:
