@@ -503,7 +503,7 @@ def handle_join_symbol(data):
                 # Logic: Trigger update if client has NO data, or client data is OLDER than server
                 if not last_updated or (server_fetched_at and server_fetched_at > last_updated):
                     print(f"[WS] Client {sid} needs sync for {symbol} ({last_updated} < {server_fetched_at}). Triggering update.")
-                    emit("data_updated", {"symbol": symbol, "interval": interval, "next_expiry": next_expiry}, room=sid)
+                    socketio.emit("data_updated", {"symbol": symbol, "interval": interval, "next_expiry": next_expiry}, room=sid)
     except Exception as e:
         print(f"[WS] Stale check error for {symbol}: {e}")
 

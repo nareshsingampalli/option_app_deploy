@@ -75,7 +75,7 @@ class BSEActiveResolver(InstrumentResolver):
             
         idx       = int(np.abs(np.array(strikes) - spot_price).argmin())
         # Standardized symmetric window: 4 strikes below ATM, 4 strikes above ATM (Total 8 strikes / 16 instruments)
-        selected  = strikes[max(0, idx - 3): idx + 5]
+        selected  = strikes[max(0, idx - 4): idx + 4]
         print(f"[BSEActiveResolver] strikes_count={len(strikes)} idx={idx} selected={selected}")
 
         instruments: list[Instrument] = []

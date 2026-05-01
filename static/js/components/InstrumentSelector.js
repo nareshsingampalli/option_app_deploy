@@ -163,7 +163,8 @@ class InstrumentSelector extends UIComponent {
             const isScalp = states.scalping;
             const isDynamic = isIntra || isScalp;
             // nSide: how many strikes to pick on each side of ATM
-            // Scalping: ATM ± 1 = 3 strikes  |  Intraday: ATM ± 2 = 5 strikes
+            // Scalping: ATM ± 1 = 3 strikes (6 instruments: ITM, ATM, OTM)
+            // Intraday: ATM ± 2 = 5 strikes (10 instruments total)
             const nSide = isScalp ? 1 : 2;
 
             // Determine which types are active

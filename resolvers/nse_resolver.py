@@ -64,7 +64,7 @@ class NSEActiveResolver(InstrumentResolver):
         strikes   = sorted(expiry_df["strike_price"].unique())
         idx       = int(np.abs(np.array(strikes) - spot_price).argmin())
         # Standardized symmetric window: 4 strikes below ATM, 4 strikes above ATM (Total 8 strikes / 16 instruments)
-        selected  = strikes[max(0, idx - 3): idx + 5]
+        selected  = strikes[max(0, idx - 4): idx + 4]
 
         instruments: list[Instrument] = []
         for strike in selected:
