@@ -76,7 +76,7 @@ class InstrumentSelector extends UIComponent {
                            data-strike="${inst.strike ?? ''}"
                            data-type="${inst.type ?? ''}"
                            checked style="margin-right:3px;flex-shrink:0;">
-                   <span style="white-space:nowrap;">${inst.strike} ${inst.type}</span>
+                   <span style="white-space:nowrap;">${inst.label} </span>
                     ${mTag}
                 </label>`;
             this.container.appendChild(div);
@@ -185,22 +185,22 @@ class InstrumentSelector extends UIComponent {
                 if (allStrikes.length > 0) {
                     const atmCE = allStrikes.filter(s => s <= spotPrice).pop() || allStrikes[0];
                     const atmPE = allStrikes.filter(s => s >= spotPrice).shift() || allStrikes[allStrikes.length - 1];
-                    
+
                     const idxCE = allStrikes.indexOf(atmCE);
                     const idxPE = allStrikes.indexOf(atmPE);
 
                     const ceFrom = Math.max(0, idxCE - nSide);
-                    const ceTo   = Math.min(allStrikes.length - 1, idxCE + nSide);
+                    const ceTo = Math.min(allStrikes.length - 1, idxCE + nSide);
                     const ceStrikes = new Set(allStrikes.slice(ceFrom, ceTo + 1));
 
                     const peFrom = Math.max(0, idxPE - nSide);
-                    const peTo   = Math.min(allStrikes.length - 1, idxPE + nSide);
+                    const peTo = Math.min(allStrikes.length - 1, idxPE + nSide);
                     const peStrikes = new Set(allStrikes.slice(peFrom, peTo + 1));
 
                     checkboxes.forEach(cb => {
                         const type = cb.dataset.type;
-                        const k    = parseFloat(cb.dataset.strike);
-                        
+                        const k = parseFloat(cb.dataset.strike);
+
                         if (type === 'CE') {
                             if (useCE && ceStrikes.has(k)) cb.checked = true;
                         } else if (type === 'PE') {
