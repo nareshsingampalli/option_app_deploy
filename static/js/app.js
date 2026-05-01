@@ -212,7 +212,16 @@ dataService.subscribe((records, isInitial, status, errorCode) => {
         }
     }
 
-    // 2. Render charts
+    // 2. Sync slider end to the actual last candle timestamp in the data.
+    //    This ensures NSE/MCX slider shows the real last data time (e.g. 15:15,
+    //    23:35) rather than a hardcoded market close. setDataEndTime() also
+    //    adjusts slider.max so the user can scrub all the way to the last candle.
+    const lastRecord = records[records.length - 1];
+    if (lastRecord && lastRecord.date && timeSelector) {
+        timeSelector.setDataEndTime(lastRecord.date);
+    }
+
+    // 3. Render charts
     renderCharts();
 });
 

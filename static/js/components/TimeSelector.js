@@ -7,6 +7,7 @@ class TimeSelector extends UIComponent {
         super(containerId);
         this.display = document.getElementById(displayId);
         this._exchange = 'NSE';
+        this._dataEndMins = null; // Set by setDataEndTime() after data loads
     }
 
     setExchange(exch) {
@@ -17,6 +18,7 @@ class TimeSelector extends UIComponent {
     reconfigure(exch, interval) {
         this._exchange = exch;
         this._interval = interval;
+        this._dataEndMins = null; // Reset when exchange/interval changes
         
         const now = new Date();
         const ist = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
@@ -31,7 +33,7 @@ class TimeSelector extends UIComponent {
             marketEnd = 15 * 60 + 30;
         } else {
             marketStart = 9 * 60;
-            marketEnd = 23 * 60 + 30;
+            marketEnd = 23 * 60 + 50;  // MCX_MARKET_END = 23:50
         }
 
         const start = marketStart + interval;
@@ -61,6 +63,39 @@ class TimeSelector extends UIComponent {
         return parseInt(this.container.value) >= parseInt(this.container.max);
     }
 
+    /**
+     * setDataEndTime — called after data loads to sync slider end to the
+     * actual last candle timestamp returned by the server.
+     * @param {string} isoDate - e.g. "2026-04-30 15:15:00+05:30"
+     */
+    setDataEndTime(isoDate) {
+        try {
+            // Support "YYYY-MM-DD HH:MM:SS+05:30" and ISO "T" separator
+            const timeStr = isoDate.replace('T', ' ').split(' ')[1]; // "HH:MM:SS+05:30"
+            const parts = timeStr.split(':');
+            const hh = parseInt(parts[0]);
+            const mm = parseInt(parts[1]);
+            if (isNaN(hh) || isNaN(mm)) return;
+
+            const lastDataMins = hh * 60 + mm;
+            const interval = this._interval || 15;
+            const marketStart = this._exchange === 'NSE' ? (9 * 60 + 15) : (9 * 60);
+            const start = marketStart + interval;
+
+            const newMax = Math.max(0, Math.floor((lastDataMins - start) / interval));
+            const wasAtMax = parseInt(this.container.value) >= parseInt(this.container.max);
+
+            this._dataEndMins = lastDataMins;
+            this.container.max = newMax;
+            if (wasAtMax) {
+                this.container.value = newMax; // Follow end if already pinned there
+            }
+            this.updateDisplay();
+        } catch (e) {
+            console.warn('[TimeSelector] setDataEndTime failed:', e);
+        }
+    }
+
     updateDisplay() {
         if (this.display) {
             this.display.textContent = this.time;
@@ -77,13 +112,17 @@ class TimeSelector extends UIComponent {
 
                 if (this._exchange === 'NSE') {
                     const startM = 9 * 60 + 15 + interval;
-                    const endM = isToday ? Math.min(15 * 60 + 30, currentMins) : 15 * 60 + 30;
+                    // Prefer actual last-candle time; fall back to market close
+                    const endM = this._dataEndMins ||
+                        (isToday ? Math.min(15 * 60 + 30, currentMins) : 15 * 60 + 30);
                     labelsGrid.children[0].textContent = this._minutesToHHMM(startM);
                     labelsGrid.children[1].textContent = this._minutesToHHMM(startM + (endM - startM) / 2);
                     labelsGrid.children[2].textContent = this._minutesToHHMM(endM);
                 } else {
                     const startM = 9 * 60 + interval;
-                    const endM = isToday ? Math.min(23 * 60 + 30, currentMins) : 23 * 60 + 30;
+                    // Prefer actual last-candle time; fall back to MCX_MARKET_END 23:50
+                    const endM = this._dataEndMins ||
+                        (isToday ? Math.min(23 * 60 + 50, currentMins) : 23 * 60 + 50);
                     labelsGrid.children[0].textContent = this._minutesToHHMM(startM);
                     labelsGrid.children[1].textContent = this._minutesToHHMM(startM + (endM - startM) / 2);
                     labelsGrid.children[2].textContent = this._minutesToHHMM(endM);

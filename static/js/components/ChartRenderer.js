@@ -234,17 +234,26 @@ class ChartRenderer extends UIComponent {
                 }
             });
 
+            // NOTE: No timestamp shift needed here.
+            // The backend pipeline already stores candle timestamps at close time
+            // (e.g. the 09:15 candle is saved as 09:30 = open + interval).
+            // Shifting again would double-shift all points by +interval.
+
             // Calculate Bounds
             const allTimes = traces.flatMap(t => t.x).map(x => parseDate(x).getTime()).sort((a, b) => a - b);
             const minTime = allTimes.length > 0 ? allTimes[0] : Date.now();
             const maxTime = allTimes.length > 0 ? allTimes[allTimes.length - 1] : Date.now();
-            
+
             const mStartObj = new Date(minTime);
             const maxTimeObj = new Date(maxTime);
 
-            // X-Axis Window (Initial Zoom: Last 3 hours)
-            const windowMs = 3 * 60 * 60 * 1000;
-            const viewStart = Math.max(mStartObj.getTime(), maxTime - windowMs);
+            // X-Axis Window: show the most recent 3 hours of data.
+            // If total data spans less than 3 hours, show the full range.
+            const intervalMins = parseInt(document.getElementById('interval-select')?.value) || 15;
+            const intervalMs   = intervalMins * 60 * 1000;
+            const windowMs     = 3 * 60 * 60 * 1000; // 3 hours
+            const viewEnd      = maxTime;
+            const viewStart    = Math.max(minTime, maxTime - windowMs);
 
             // Robust Y-Axis Range logic
             let yRange = null;
@@ -273,7 +282,7 @@ class ChartRenderer extends UIComponent {
                 margin: { t: 40, r: 30, l: 60, b: 50 },
                 height: 550,
                 xaxis: {
-                    range: [new Date(viewStart), maxTimeObj],
+                    range: [new Date(viewStart), new Date(viewEnd)],
                     minallowed: mStartObj,
                     maxallowed: maxTimeObj,
                     autorange: false,
